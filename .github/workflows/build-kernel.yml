@@ -17,7 +17,7 @@ jobs:
       - name: Install build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y flex bison bc cpio libssl-dev xz-utils
+          sudo apt-get install -y flex bison bc cpio libssl-dev xz-utils dwarves
 
       - name: Build Image
         run: |
