@@ -7,5 +7,5 @@
 	url = https://github.com/maxsteeel/proton-12
 [submodule "SukiSU-Ultra"]
 	path = SukiSU-Ultra
-	url = https://github.com/SukiSU-Ultra/SukiSU-Ultra.git
-	branch = builtin
+	url = https://github.com/Seuj09/SukiSU-Ultra.git
+	branch = builtin-5.4
