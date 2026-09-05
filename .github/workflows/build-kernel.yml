@@ -13,6 +13,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          # Fetch full history so KernelSU-Next's Kbuild can compute
+          # KSU_VERSION = 30000 + (git rev-list --count HEAD) + 200.
+          # A shallow submodule clone yields count=1 -> version 30201,
+          # which the manager rejects (needs >= 33188).
+          fetch-depth: 0
 
       - name: Install build dependencies
         run: |
