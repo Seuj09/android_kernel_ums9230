@@ -342,47 +342,6 @@ extern long notrace probe_kernel_write(void *dst, const void *src, size_t size);
 extern long notrace __probe_kernel_write(void *dst, const void *src, size_t size);
 
 /*
- * Backport shim for the ums9230 5.4 tree: v5.8 renamed
- * probe_kernel_read()/probe_kernel_write() to
- * copy_from_kernel_nofault()/copy_to_kernel_nofault().  Provide the newer
- * names so out-of-tree code (SukiSU-Ultra) that targets 5.8+ still builds.
- */
-#define copy_from_kernel_nofault(dst, src, size) probe_kernel_read(dst, src, size)
-#define copy_to_kernel_nofault(dst, src, size)	 probe_kernel_write(dst, src, size)
-
-/*
- * Backport shim for the ums9230 5.4 tree: v5.5 added
- * copy_from_user_nofault()/copy_to_user_nofault() (pagefault-disabled user
- * copies).  This tree has the __copy_*_inatomic() primitives but not the
- * public nofault wrappers, so provide them for SukiSU-Ultra.
- */
-static inline long copy_from_user_nofault(void *dst, const void __user *src,
-					  unsigned long size)
-{
-	long ret;
-
-	if (!access_ok(src, size))
-		return size;
-	pagefault_disable();
-	ret = __copy_from_user_inatomic(dst, src, size);
-	pagefault_enable();
-	return ret;
-}
-
-static inline long copy_to_user_nofault(void __user *dst, const void *src,
-					unsigned long size)
-{
-	long ret;
-
-	if (!access_ok(dst, size))
-		return size;
-	pagefault_disable();
-	ret = __copy_to_user_inatomic(dst, src, size);
-	pagefault_enable();
-	return ret;
-}
-
-/*
  * probe_user_write(): safely attempt to write to a location in user space
  * @dst: address to write to
  * @src: pointer to the data that shall be written

@@ -8,3 +8,4 @@
 [submodule "SukiSU-Ultra"]
 	path = SukiSU-Ultra
 	url = https://github.com/SukiSU-Ultra/SukiSU-Ultra.git
+	branch = builtin
