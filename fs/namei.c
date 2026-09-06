@@ -1745,7 +1745,6 @@ static int lookup_fast(struct nameidata *nd,
 				dentry = __d_lookup_rcu(parent, &susfs_fake_qstr_name, &backup_next_seq);
 			}
 		}
-skip_orig_flow1:
 #endif
 		if (unlikely(!dentry)) {
 			if (unlazy_walk(nd))
@@ -1800,7 +1799,6 @@ skip_orig_flow1:
 				dentry = __d_lookup(parent, &susfs_fake_qstr_name);
 			}
 		}
-skip_orig_flow2:
 #endif
 		if (unlikely(!dentry))
 			return 0;
@@ -3404,7 +3402,6 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 			found_sus_path = true;
 		}
 	}
-skip_orig_flow1:
 #endif
 	for (;;) {
 		if (!dentry) {
