@@ -2,10 +2,10 @@
 	path = Baseband-guard
 	url = https://github.com/vc-teahouse/Baseband-guard
 
-[submodule "KernelSU-Next"]
-	path = KernelSU-Next
-	url = https://github.com/maxsteeel/KernelSU-Next
-	branch = susfs-legacy-test
 [submodule "toolchain"]
 	path = toolchain
 	url = https://github.com/maxsteeel/proton-12
+[submodule "SukiSU-Ultra"]
+	path = SukiSU-Ultra
+	url = https://github.com/Seuj09/SukiSU-Ultra.git
+	branch = builtin-5.4
