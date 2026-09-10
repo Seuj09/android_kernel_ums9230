@@ -550,10 +550,8 @@ bpf_prog_ksym_set_addr(struct bpf_prog *prog)
 	prog->aux->ksym.end   = addr + hdr->pages * PAGE_SIZE;
 }
 
-static void
-bpf_prog_ksym_set_name(struct bpf_prog *prog)
+void bpf_get_prog_name(const struct bpf_prog *prog, char *sym)
 {
-	char *sym = prog->aux->ksym.name;
 	const char *end = sym + KSYM_NAME_LEN;
 	const struct btf_type *type;
 	const char *func_name;
@@ -585,6 +583,12 @@ bpf_prog_ksym_set_name(struct bpf_prog *prog)
 		snprintf(sym, (size_t)(end - sym), "_%s", prog->aux->name);
 	else
 		*sym = 0;
+}
+
+static void
+bpf_prog_ksym_set_name(struct bpf_prog *prog)
+{
+	bpf_get_prog_name(prog, prog->aux->ksym.name);
 }
 
 static unsigned long bpf_get_ksym_start(struct latch_tree_node *n)

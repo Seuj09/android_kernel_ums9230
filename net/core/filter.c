@@ -43,6 +43,7 @@
 #include <asm/unaligned.h>
 #include <asm/cmpxchg.h>
 #include <linux/filter.h>
+#include <linux/btf_ids.h>
 #include <linux/ratelimit.h>
 #include <linux/seccomp.h>
 #include <linux/if_vlan.h>
@@ -9012,3 +9013,12 @@ const struct bpf_verifier_ops sk_lookup_verifier_ops = {
 const struct bpf_prog_ops sk_lookup_prog_ops = {
 };
 #endif /* CONFIG_INET */
+
+#ifdef CONFIG_DEBUG_INFO_BTF
+BTF_ID_LIST_GLOBAL(btf_sock_ids)
+#define BTF_SOCK_TYPE(name, type) BTF_ID(struct, type)
+BTF_SOCK_TYPE_xxx
+#undef BTF_SOCK_TYPE
+#else
+u32 btf_sock_ids[MAX_BTF_SOCK_TYPE];
+#endif
