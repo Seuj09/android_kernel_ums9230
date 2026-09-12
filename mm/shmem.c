@@ -1609,11 +1609,7 @@ static int shmem_replace_page(struct page **pagep, gfp_t gfp,
 		oldpage = newpage;
 	} else {
 		mem_cgroup_migrate(oldpage, newpage);
-#ifdef CONFIG_LRU_BALANCE_BASE_THRASHING
-		lru_cache_add(newpage);
-#else
 		lru_cache_add_anon(newpage);
-#endif
 		*pagep = newpage;
 	}
 
@@ -1900,11 +1896,7 @@ alloc_nohuge:
 	}
 	mem_cgroup_commit_charge(page, memcg, false,
 				 PageTransHuge(page));
-#ifdef CONFIG_LRU_BALANCE_BASE_THRASHING
-	lru_cache_add(page);
-#else
 	lru_cache_add_anon(page);
-#endif
 
 	spin_lock_irq(&info->lock);
 	info->alloced += compound_nr(page);
@@ -2233,7 +2225,7 @@ static int shmem_mmap(struct file *file, struct vm_area_struct *vma)
 	struct shmem_inode_info *info = SHMEM_I(file_inode(file));
 	int ret;
 
-	ret = seal_check_future_write(info->seals, vma);
+	ret = seal_check_write(info->seals, vma);
 	if (ret)
 		return ret;
 
@@ -3422,18 +3414,20 @@ static int shmem_parse_one(struct fs_context *fc, struct fs_parameter *param)
 		kuid = make_kuid(current_user_ns(), result.uint_32);
 		if (!uid_valid(kuid))
 			goto bad_value;
-			
+
 		/*
 		 * The requested uid must be representable in the
 		 * filesystem's idmapping.
 		 */
 		if (!kuid_has_mapping(fc->user_ns, kuid))
 			goto bad_value;
+
 		ctx->uid = kuid;
 		break;
 	case Opt_gid:
 		kgid = make_kgid(current_user_ns(), result.uint_32);
 		if (!gid_valid(kgid))
+			goto bad_value;
 
 		/*
 		 * The requested gid must be representable in the
@@ -3441,6 +3435,7 @@ static int shmem_parse_one(struct fs_context *fc, struct fs_parameter *param)
 		 */
 		if (!kgid_has_mapping(fc->user_ns, kgid))
 			goto bad_value;
+
 		ctx->gid = kgid;
 		break;
 	case Opt_huge:
@@ -4135,14 +4130,6 @@ struct file *shmem_file_setup(const char *name, loff_t size, unsigned long flags
 }
 EXPORT_SYMBOL_GPL(shmem_file_setup);
 
-void shmem_set_file(struct vm_area_struct *vma, struct file *file)
-{
-	if (vma->vm_file)
-		fput(vma->vm_file);
-	vma->vm_file = file;
-	vma->vm_ops = &shmem_vm_ops;
-}
-
 /**
  * shmem_file_setup_with_mnt - get an unlinked file living in tmpfs
  * @mnt: the tmpfs mount where the file will be created
@@ -4176,7 +4163,10 @@ int shmem_zero_setup(struct vm_area_struct *vma)
 	if (IS_ERR(file))
 		return PTR_ERR(file);
 
-	shmem_set_file(vma, file);
+	if (vma->vm_file)
+		fput(vma->vm_file);
+	vma->vm_file = file;
+	vma->vm_ops = &shmem_vm_ops;
 
 	if (IS_ENABLED(CONFIG_TRANSPARENT_HUGE_PAGECACHE) &&
 			((vma->vm_start + ~HPAGE_PMD_MASK) & HPAGE_PMD_MASK) <

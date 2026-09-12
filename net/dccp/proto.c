@@ -330,6 +330,7 @@ __poll_t dccp_poll(struct file *file, struct socket *sock,
 	int state;
 
 	sock_poll_wait(file, sock, wait);
+
 	state = inet_sk_state_load(sk);
 	if (state == DCCP_LISTEN)
 		return inet_csk_listen_poll(sk);
@@ -959,7 +960,7 @@ int inet_dccp_listen(struct socket *sock, int backlog)
 	if (!((1 << old_state) & (DCCPF_CLOSED | DCCPF_LISTEN)))
 		goto out;
 
-	sk->sk_max_ack_backlog = backlog;
+	WRITE_ONCE(sk->sk_max_ack_backlog, backlog);
 	/* Really, if the socket is already in listen state
 	 * we can only allow the backlog to be adjusted.
 	 */

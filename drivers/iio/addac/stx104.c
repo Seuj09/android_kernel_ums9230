@@ -117,7 +117,7 @@ static int stx104_read_raw(struct iio_dev *indio_dev,
 			return IIO_VAL_INT;
 		}
 
-		mutex_lock(&priv->lock);	
+		mutex_lock(&priv->lock);
 
 		/* select ADC channel */
 		iowrite8(chan->channel | (chan->channel << 4), &reg->achan);
@@ -141,7 +141,7 @@ static int stx104_read_raw(struct iio_dev *indio_dev,
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
 		/* get ADC bipolar/unipolar and gain configuration */
-		adc_config = ioread8(&reg->acfg);	
+		adc_config = ioread8(&reg->acfg);
 		adbu = !(adc_config & BIT(2));
 		gain = adc_config & 0x3;
 
@@ -163,7 +163,7 @@ static int stx104_write_raw(struct iio_dev *indio_dev,
 		/* Only four gain states (x1, x2, x4, x8) */
 		switch (val) {
 		case 1:
-			iiowrite8(0, &priv->reg->acfg);
+			iowrite8(0, &priv->reg->acfg);
 			break;
 		case 2:
 			iowrite8(1, &priv->reg->acfg);
@@ -184,7 +184,7 @@ static int stx104_write_raw(struct iio_dev *indio_dev,
 			/* DAC can only accept up to a 16-bit value */
 			if ((unsigned int)val > 65535)
 				return -EINVAL;
-				
+
 			mutex_lock(&priv->lock);
 
 			priv->chan_out_states[chan->channel] = val;
@@ -368,7 +368,7 @@ static int stx104_probe(struct device *dev, unsigned int id)
 	iowrite8(0, &priv->reg->acr);
 
 	/* initialize gain setting to x1 */
-	iowrite8(0, priv->base + 11);
+	iowrite8(0, &priv->reg->acfg);
 
 	/* initialize DAC output to 0V */
 	iowrite16(0, &priv->reg->dac[0]);

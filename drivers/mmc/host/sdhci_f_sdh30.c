@@ -53,9 +53,9 @@ struct f_sdhost_priv {
 static void *sdhci_f_sdhost_priv(struct sdhci_host *host)
 {
 	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
+
 	return sdhci_pltfm_priv(pltfm_host);
 }
-
 
 static void sdhci_f_sdh30_soft_voltage_switch(struct sdhci_host *host)
 {
@@ -142,7 +142,6 @@ static int sdhci_f_sdh30_probe(struct platform_device *pdev)
 	priv = sdhci_pltfm_priv(pltfm_host);
 	priv->dev = dev;
 
-
 	priv->enable_cmd_dat_delay = device_property_read_bool(dev,
 						"fujitsu,cmd-dat-delay-select");
 
@@ -205,6 +204,7 @@ err_clk:
 	clk_disable_unprepare(priv->clk_iface);
 err:
 	sdhci_pltfm_free(pdev);
+
 	return ret;
 }
 
