@@ -403,6 +403,7 @@ static void gic_all_vpes_irq_cpu_online(void)
 		if (cd->mask)
 			write_gic_vl_smask(BIT(intr));
 	}
+
 	raw_spin_unlock_irqrestore(&gic_lock, flags);
 }
 
@@ -492,7 +493,6 @@ static int gic_irq_domain_map(struct irq_domain *d, unsigned int virq,
 	 * If adding support for more per-cpu interrupts, keep the the
 	 * array in gic_all_vpes_irq_cpu_online() in sync.
 	 */
-
 	switch (intr) {
 	case GIC_LOCAL_INT_TIMER:
 		/* CONFIG_MIPS_CMP workaround (see __gic_init) */

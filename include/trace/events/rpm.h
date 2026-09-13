@@ -75,7 +75,9 @@ DEFINE_EVENT(rpm_internal, rpm_idle,
 	TP_ARGS(dev, flags)
 );
 DEFINE_EVENT(rpm_internal, rpm_usage,
+
 	TP_PROTO(struct device *dev, int flags),
+
 	TP_ARGS(dev, flags)
 );
 

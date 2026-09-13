@@ -50,6 +50,7 @@ static const struct snd_pcm_hw_constraint_list fsl_sai_rate_constraints = {
 static inline bool fsl_sai_dir_is_synced(struct fsl_sai *sai, int dir)
 {
 	int adir = (dir == TX) ? RX : TX;
+
 	/* current dir in async mode while opposite dir in sync mode */
 	return !sai->synchronous[dir] && sai->synchronous[adir];
 }
@@ -545,28 +546,34 @@ static void fsl_sai_config_disable(struct fsl_sai *sai, int dir)
 	unsigned int ofs = sai->soc_data->reg_offset;
 	bool tx = dir == TX;
 	u32 xcsr, count = 100;
+
 	regmap_update_bits(sai->regmap, FSL_SAI_xCSR(tx, ofs),
 			   FSL_SAI_CSR_TERE | FSL_SAI_CSR_BCE, 0);
+
 	/* TERE will remain set till the end of current frame */
 	do {
 		udelay(10);
 		regmap_read(sai->regmap, FSL_SAI_xCSR(tx, ofs), &xcsr);
 	} while (--count && xcsr & FSL_SAI_CSR_TERE);
+
 	regmap_update_bits(sai->regmap, FSL_SAI_xCSR(tx, ofs),
 			   FSL_SAI_CSR_FR, FSL_SAI_CSR_FR);
+
 	/*
 	 * For sai master mode, after several open/close sai,
 	 * there will be no frame clock, and can't recover
 	 * anymore. Add software reset to fix this issue.
 	 * This is a hardware bug, and will be fix in the
 	 * next sai version.
+	 *
+	 * In consumer mode, this can happen even after a
+	 * single open/close, especially if both tx and rx
+	 * are running concurrently.
 	 */
-	if (!sai->is_slave_mode) {
-		/* Software Reset */
-		regmap_write(sai->regmap, FSL_SAI_xCSR(tx, ofs), FSL_SAI_CSR_SR);
-		/* Clear SR bit to finish the reset */
-		regmap_write(sai->regmap, FSL_SAI_xCSR(tx, ofs), 0);
-	}
+	/* Software Reset */
+	regmap_write(sai->regmap, FSL_SAI_xCSR(tx, ofs), FSL_SAI_CSR_SR);
+	/* Clear SR bit to finish the reset */
+	regmap_write(sai->regmap, FSL_SAI_xCSR(tx, ofs), 0);
 }
 
 static int fsl_sai_trigger(struct snd_pcm_substream *substream, int cmd,
@@ -638,6 +645,7 @@ static int fsl_sai_trigger(struct snd_pcm_substream *substream, int cmd,
 		 */
 		if (fsl_sai_dir_is_synced(sai, adir) && !(xcsr & FSL_SAI_CSR_FRDE))
 			fsl_sai_config_disable(sai, adir);
+
 		/*
 		 * Disable current stream if either of:
 		 * 1. current stream doesn't provide clocks for synchronous mode
@@ -981,7 +989,7 @@ static int fsl_sai_probe(struct platform_device *pdev)
 
 	if (sai->soc_data->reg_offset == 8) {
 		fsl_sai_regmap_config.reg_defaults = fsl_sai_reg_defaults_ofs8;
-		fsl_sai_regmap_config.max_register = FSL_SAI_MDIV
+		fsl_sai_regmap_config.max_register = FSL_SAI_MDIV;
 		fsl_sai_regmap_config.num_reg_defaults =
 			ARRAY_SIZE(fsl_sai_reg_defaults_ofs8);
 	}
