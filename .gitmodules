@@ -2,10 +2,10 @@
 	path = Baseband-guard
 	url = https://github.com/vc-teahouse/Baseband-guard
 
-[submodule "KernelSU-Next"]
-	path = KernelSU-Next
-	url = https://github.com/rifsxd/KernelSU-Next
-	branch = legacy
 [submodule "toolchain"]
 	path = toolchain
 	url = https://github.com/maxsteeel/proton-12
+[submodule "ReSukiSU"]
+	path = ReSukiSU
+	url = https://github.com/ReSukiSU/ReSukiSU
+	branch = main
