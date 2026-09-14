@@ -3,7 +3,7 @@ name: Build Kernel
 on:
   workflow_dispatch:
   push:
-    branches: [ master, sukisu, ksu-next, bpf ]
+    branches: [ master, sukisu, ksu-next, bpf, tweaks ]
 
 jobs:
   build:
