@@ -463,7 +463,7 @@ CONFIG_RANDOMIZE_BASE=y
 #
 CONFIG_BUILD_ARM64_DTC=""
 CONFIG_BUILD_ARM64_DTC_FLAGS="-@"
-CONFIG_CMDLINE="stack_depot_disable=on kasan=off nokaslr audit=0 cgroup_disable=pressure,net_prio cgroup_no_v1=cpu,cpuset,blkio,io cgroup.memory=nokmem,nosocket noirqdebug mitigations=off iommu.strict=0 iommu.passthrough=1 norandmaps mute_console nodebugmon loglevel=0 initcall_debug=0 pti=off nowatchdog mce=ignore_ce,dont_log_ce nosoftlockup quiet nmi_watchdog=0 tsc=nowatchdog hardened_usercopy=off arm64.nomte arm64.nobti arm64.nopauth"
+CONFIG_CMDLINE="stack_depot_disable=on kasan=off nokaslr audit=0 cgroup_disable=pressure,net_prio cgroup_no_v1=cpu,cpuset,blkio,io,memory cgroup.memory=nokmem,nosocket noirqdebug mitigations=off iommu.strict=0 iommu.passthrough=1 norandmaps mute_console nodebugmon loglevel=0 initcall_debug=0 pti=off nowatchdog mce=ignore_ce,dont_log_ce nosoftlockup quiet nmi_watchdog=0 tsc=nowatchdog hardened_usercopy=off arm64.nomte arm64.nobti arm64.nopauth"
 # CONFIG_CMDLINE_FROM_BOOTLOADER is not set
 CONFIG_CMDLINE_EXTEND=y
 # CONFIG_CMDLINE_FORCE is not set

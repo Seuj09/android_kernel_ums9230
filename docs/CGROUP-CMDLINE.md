@@ -13,7 +13,7 @@
 `unisoc_defconfig` keeps `CONFIG_CMDLINE_EXTEND=y` (not FORCE). Built-in string is now:
 
 ```text
-cgroup_disable=pressure,net_prio cgroup_no_v1=cpu,cpuset
+cgroup_disable=pressure,net_prio cgroup_no_v1=cpu,cpuset,blkio,io,memory
 ```
 
 Removed from disable list: `memory`, `io`, `cpuacct`.
@@ -54,7 +54,7 @@ logcat -d | grep -E 'createProcessGroup|libprocessgroup|netd' | tail -40
 
 ## A13 risk
 
-`cgroup_no_v1=cpu,cpuset` can break vendor A13 paths that still expect legacy `/dev/cpuset` / `/dev/cpuctl`. Keep a backup Image; smoke A13 once after the A17 check. If A13 regresses, prefer slot/backup restore over FORCE.
+`cgroup_no_v1=cpu,cpuset,blkio,io,memory` can break vendor A13 paths that still expect legacy `/dev/cpuset`, `/dev/cpuctl`, `/dev/blkio`, or `/dev/memcg`. Keep a backup Image; smoke A13 once after the A17 check. If A13 regresses, prefer slot/backup restore over FORCE.
 
 ## Out of scope
 
