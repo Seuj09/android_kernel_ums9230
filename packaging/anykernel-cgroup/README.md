@@ -1,17 +1,14 @@
-# AnyKernel3 — cgroup2 early-init (boot ramdisk)
+# AnyKernel3 (Jeus every-build template) + cgroup2 early-init
 
-Replaces Magisk/ReSukiSU module path. Injects `init.cgroup2_early.rc` into **BOOT**
-ramdisk (Unisoc, not init_boot) and flashes Image `ba98de94`.
+Based on Jeus’s usual Max Kernel AK3 zip (`split_boot`/`flash_boot`), with the
+only behavioral change required for cgroup2: **`dump_boot` → inject rc → `write_boot`**
+so BOOT ramdisk gets `init.cgroup2_early.rc`. Still patches **boot** (Unisoc), not init_boot.
 
-## Zip
+## Flash
 
-`AnyKernel3-ums9230-cgroup2-early-ba98de94.zip`
-
-## Flash (Jeus)
-
-1. Flash zip in TWRP (or any AK3-compatible installer).
-2. Reboots with new Image + ramdisk early-init.
-3. No Magisk module step.
+1. Put `Image` (ba98de94) in this folder if rebuilding: `./pack.sh Image.xz`
+2. Flash `AnyKernel3-ums9230-cgroup2-early-ba98de94.zip` in TWRP like any other AK3.
+3. Reboot A17.
 
 ## Verify
 
@@ -19,7 +16,5 @@ ramdisk (Unisoc, not init_boot) and flashes Image `ba98de94`.
 ls -ld /sys/fs/cgroup/apps /sys/fs/cgroup/system
 cat /sys/fs/cgroup/cgroup.subtree_control
 getprop sys.boot_completed
-logcat -d | grep -E 'createProcessGroup|cgroup2_early|ActivateControllers' | tail -40
+logcat -d | grep createProcessGroup | tail -20
 ```
-
-No further cgroup_no_v1 / UFFD. If ActivateControllers EBUSY → cgroups.json overlay next.

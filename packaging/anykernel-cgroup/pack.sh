@@ -1,6 +1,4 @@
 #!/usr/bin/env bash
-# Rebuild AnyKernel3-ums9230-cgroup2-early-ba98de94.zip
-# Usage: ./pack.sh /path/to/Image   OR   ./pack.sh /path/to/Image.xz
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")" && pwd)
 IMG_IN=${1:?Image or Image.xz}
@@ -10,10 +8,10 @@ import lzma, shutil
 from pathlib import Path
 src=Path("$IMG_IN"); dst=Path("$ROOT/Image")
 with lzma.open(src) as f, open(dst,"wb") as o: shutil.copyfileobj(f,o)
-print("decompressed", dst, dst.stat().st_size)
+print("decompressed", dst.stat().st_size)
 PY
 else
-  cp -f "$IMG_IN" "$ROOT/Image"
+  cp -f "$IMG_IN" "$ROOT/Image.tmp" && mv -f "$ROOT/Image.tmp" "$ROOT/Image"
 fi
 python3 - <<PY
 import zipfile

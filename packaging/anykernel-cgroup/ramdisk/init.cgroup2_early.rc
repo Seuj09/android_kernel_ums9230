@@ -1,6 +1,5 @@
-# Early cgroup2 apps/system for A17 GSI createProcessGroup (system/uid_*).
-# Imported into boot ramdisk init.rc via AnyKernel (Unisoc boot, not init_boot).
-# Kernel prerequisite: bpf ba98de94+ (cgroup_no_v1 includes memory).
+# BOOT ramdisk early-init cgroup2 for A17 GSI (system/uid_*).
+# Builtins are SoT (Debugger); shell fallback is best-effort during early-init only.
 
 on early-init
     mkdir /sys/fs/cgroup 0755 root root
@@ -12,4 +11,5 @@ on early-init
     write /sys/fs/cgroup/system/cgroup.subtree_control +cpuset +cpu +io +memory +pids
 
 on early-init
+    # Best-effort only — may 404 after switch_root; builtins above are the real path
     exec -- /system/bin/sh /cgroup2_early_fix.sh
