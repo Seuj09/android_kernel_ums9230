@@ -1,0 +1,6 @@
+id=cgroup2_early_ums9230
+name=cgroup2 early apps/system (ums9230 A17)
+version=v1.0.0
+versionCode=1
+author=Seuj09 / Coder
+description=post-fs-data: ensure cgroup2 apps+system dirs and subtree_control (memory/io/cpu/cpuset/pids) so A17 createProcessGroup can make /sys/fs/cgroup/system/uid_*. Kernel ba98de94+ assumed. A13 keeps vendor root uid_* — module is additive.
