@@ -1,40 +1,44 @@
-# Magisk: cgroup2 early apps/system (ums9230 A17)
+# cgroup2 early apps/system (ums9230 A17) — ReSukiSU / TWRP
 
-## Why
+Jeus runs **ReSukiSU**, not Magisk Manager. Use the **TWRP** zip.
 
-Kernel `ba98de94` (and later) can put memory/io/cpu/cpuset on unified cgroup2, but A17
-still needs `/sys/fs/cgroup/system` and `/sys/fs/cgroup/apps` with controllers
-delegated via `cgroup.subtree_control` so `createProcessGroup` can create `uid_*`.
-A13 SoT used root-level `uid_*`; A17 expects `system/uid_*`.
+## Download
+
+- TWRP/ReSukiSU zip (primary):
+  https://raw.githubusercontent.com/Seuj09/android_kernel_ums9230/bpf/packaging/magisk-cgroup2-early/cgroup2-early-ums9230-twrp-v1.0.0.zip
+- Or from tree: `packaging/magisk-cgroup2-early/cgroup2-early-ums9230-twrp-v1.0.0.zip` on branch `bpf`
+- Legacy Magisk `update-binary` zip (`cgroup2-early-ums9230-v1.0.0.zip`) is wrong for ReSukiSU — ignore unless on Magisk.
 
 ## Install (Jeus)
 
-1. Copy `cgroup2-early-ums9230-v1.0.0.zip` to the phone.
-2. Magisk app → Modules → Install from storage → pick the zip → Reboot.
-3. Keep kernel Image from `ba98de94` (or newer cgroup_no_v1) flashed.
+1. Kernel `ba98de94`+ still required (cgroup_no_v1 includes memory).
+2. Flash `cgroup2-early-ums9230-twrp-v1.0.0.zip` in TWRP (or any recovery that runs META-INF update-binary).
+3. Installer copies `module.prop` / `post-fs-data.sh` / `service.sh` to  
+   `/data/adb/modules/cgroup2_early_ums9230/` (KernelSU/ReSukiSU module dir).
+4. Reboot A17.
 
-## Verify after reboot (adb shell)
+Manual alternate (adb root / recovery shell):
 
 ```sh
-ls -ld /sys/fs/cgroup /sys/fs/cgroup/apps /sys/fs/cgroup/system
-cat /sys/fs/cgroup/cgroup.controllers
+MOD=/data/adb/modules/cgroup2_early_ums9230
+mkdir -p "$MOD"
+# copy the three files from the zip, then:
+chmod 755 "$MOD/post-fs-data.sh" "$MOD/service.sh"
+chmod 644 "$MOD/module.prop"
+rm -f "$MOD/disable" "$MOD/remove"
+reboot
+```
+
+## Verify
+
+```sh
+ls -ld /sys/fs/cgroup/apps /sys/fs/cgroup/system
 cat /sys/fs/cgroup/cgroup.subtree_control
 cat /sys/fs/cgroup/system/cgroup.subtree_control
-# expect memory/io/cpu/cpuset/pids present where kernel allows
-
+ls /data/adb/modules/cgroup2_early_ums9230/
 getprop sys.boot_completed
-logcat -d | grep -E 'createProcessGroup|libprocessgroup' | tail -30
-# createProcessGroup ENOENT should be gone
-
+logcat -d | grep -E 'createProcessGroup|ActivateControllers' | tail -30
 cat /data/local/tmp/cgroup2-early.log
 ```
 
-## Optional later
-
-If GSI `cgroups.json` disagrees with this layout, a Magisk overlay of
-`/system/etc/cgroups.json` (or product) may be cleaner than mkdir — try this
-module first.
-
-## Uninstall
-
-Magisk → Modules → remove → reboot.
+If `ActivateControllers` hits EBUSY after mkdir, next step is an early `cgroups.json` overlay (not this zip).

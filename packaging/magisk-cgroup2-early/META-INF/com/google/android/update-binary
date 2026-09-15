@@ -1,33 +1,68 @@
 #!/sbin/sh
+# TWRP/custom recovery installer for ReSukiSU/KernelSU module layout.
+# Does NOT use Magisk util_functions.sh.
 
-#################
-# Initialization
-#################
+OUTFD=${2:-1}
+ZIPFILE="$3"
 
-umask 022
+ui_print() {
+  if [ -n "$OUTFD" ] && [ -e "/proc/self/fd/$OUTFD" ]; then
+    echo "ui_print $1" > "/proc/self/fd/$OUTFD"
+    echo "ui_print" > "/proc/self/fd/$OUTFD"
+  else
+    echo "$1"
+  fi
+}
 
-# echo before loading util_functions
-ui_print() { echo "$1"; }
+ui_print "cgroup2-early (ums9230) — recovery install"
+ui_print "target: /data/adb/modules/cgroup2_early_ums9230"
 
-require_new_magisk() {
-  ui_print "*******************************"
-  ui_print " Please install Magisk v20.4+! "
-  ui_print "*******************************"
+# Mount /data (userdata). Try several Unisoc/AOSP names.
+mount /data 2>/dev/null || true
+if ! mountpoint -q /data 2>/dev/null && [ ! -d /data/adb ]; then
+  for n in userdata data; do
+    for p in /dev/block/by-name/$n /dev/block/bootdevice/by-name/$n; do
+      [ -e "$p" ] || continue
+      mount -t auto "$p" /data 2>/dev/null && break 2
+    done
+  done
+fi
+
+if [ ! -d /data ]; then
+  ui_print "ERROR: /data not mounted"
+  exit 1
+fi
+
+MOD=/data/adb/modules/cgroup2_early_ums9230
+mkdir -p "$MOD" || {
+  ui_print "ERROR: cannot mkdir $MOD"
   exit 1
 }
 
-#########################
-# Load util_functions.sh
-#########################
+# Extract only module files (ignore META-INF).
+TMP=/tmp/cgroup2-early-unpack
+rm -rf "$TMP"
+mkdir -p "$TMP"
+unzip -o "$ZIPFILE" "module.prop" "post-fs-data.sh" "service.sh" -d "$TMP" || {
+  ui_print "ERROR: unzip failed"
+  exit 1
+}
 
-OUTFD=$2
-ZIPFILE=$3
+for f in module.prop post-fs-data.sh service.sh; do
+  if [ ! -f "$TMP/$f" ]; then
+    ui_print "ERROR: missing $f in zip"
+    exit 1
+  fi
+  cp -f "$TMP/$f" "$MOD/$f"
+done
+chmod 644 "$MOD/module.prop"
+chmod 755 "$MOD/post-fs-data.sh" "$MOD/service.sh"
+# Ensure module is enabled
+rm -f "$MOD/disable" "$MOD/remove"
 
-mount /data 2>/dev/null
-
-[ -f /data/adb/magisk/util_functions.sh ] || require_new_magisk
-. /data/adb/magisk/util_functions.sh
-[ $MAGISK_VER_CODE -lt 20400 ] && require_new_magisk
-
-install_module
+ui_print "installed:"
+ui_print "  $MOD/module.prop"
+ui_print "  $MOD/post-fs-data.sh"
+ui_print "  $MOD/service.sh"
+ui_print "Reboot A17. Kernel ba98de94+ still required."
 exit 0
