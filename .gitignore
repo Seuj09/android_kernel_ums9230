@@ -147,3 +147,7 @@ x509.genkey
 
 # Clang's compilation database file
 /compile_commands.json
+
+# Local AK3 build products (zip delivered via Release / chat)
+packaging/anykernel-cgroup/Image
+packaging/anykernel-cgroup/*.zip

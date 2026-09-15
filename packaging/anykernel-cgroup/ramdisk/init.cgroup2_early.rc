@@ -1,0 +1,15 @@
+# Early cgroup2 apps/system for A17 GSI createProcessGroup (system/uid_*).
+# Imported into boot ramdisk init.rc via AnyKernel (Unisoc boot, not init_boot).
+# Kernel prerequisite: bpf ba98de94+ (cgroup_no_v1 includes memory).
+
+on early-init
+    mkdir /sys/fs/cgroup 0755 root root
+    mount cgroup2 none /sys/fs/cgroup nodev noexec nosuid
+    write /sys/fs/cgroup/cgroup.subtree_control +cpuset +cpu +io +memory +pids
+    mkdir /sys/fs/cgroup/apps 0755 system system
+    mkdir /sys/fs/cgroup/system 0755 system system
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpuset +cpu +io +memory +pids
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpuset +cpu +io +memory +pids
+
+on early-init
+    exec -- /system/bin/sh /cgroup2_early_fix.sh

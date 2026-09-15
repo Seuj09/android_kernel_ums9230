@@ -1,13 +1,25 @@
-# anykernel-cgroup (ums9230 bpf) — optional
+# AnyKernel3 — cgroup2 early-init (boot ramdisk)
 
-Primary fix is flashing Image from `7d1d311` (artifact
-`kernel-Image-7d1d31113c518b1b5ade469b9e5b7d117eaa9bbe`).
+Replaces Magisk/ReSukiSU module path. Injects `init.cgroup2_early.rc` into **BOOT**
+ramdisk (Unisoc, not init_boot) and flashes Image `ba98de94`.
 
-Use this zip **only if** after that flash `/proc/cmdline` still shows
-`memory` or `io` inside a bootloader-sourced `cgroup_disable=`.
+## Zip
 
-1. Copy `anykernel.sh` into an AnyKernel3 tree (tools from ak3_541).
-2. Place decompressed CI `Image` in the AK3 root.
-3. Zip and flash — `patch_cmdline` rewrites the boot.img header.
+`AnyKernel3-ums9230-cgroup2-early-ba98de94.zip`
 
-See `docs/CGROUP-CMDLINE.md`.
+## Flash (Jeus)
+
+1. Flash zip in TWRP (or any AK3-compatible installer).
+2. Reboots with new Image + ramdisk early-init.
+3. No Magisk module step.
+
+## Verify
+
+```sh
+ls -ld /sys/fs/cgroup/apps /sys/fs/cgroup/system
+cat /sys/fs/cgroup/cgroup.subtree_control
+getprop sys.boot_completed
+logcat -d | grep -E 'createProcessGroup|cgroup2_early|ActivateControllers' | tail -40
+```
+
+No further cgroup_no_v1 / UFFD. If ActivateControllers EBUSY → cgroups.json overlay next.
