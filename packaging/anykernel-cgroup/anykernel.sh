@@ -149,40 +149,44 @@ inject_into_img() {
   return 0
 }
 
-# Survey + try inject: skip empty init_boot; prefer partitions that unpack + have init.rc
+# Survey + try inject: skip empty init_boot; probe vendor_boot then boot
 ui_print "- hard-stop: do not require init_boot (often zeros on this device)"
+DONE_INJECT=
 
 IB=$(byname init_boot)
 if [ -n "$IB" ]; then
   dd if="$IB" of="$AKHOME/init_boot_probe.img" bs=4096 count=16 2>/dev/null
   ui_print "- init_boot$SLOT probe first64:$(hex64 "$AKHOME/init_boot_probe.img")"
   if is_all_zeros_header "$AKHOME/init_boot_probe.img"; then
-    ui_print "- init_boot$SLOT is EMPTY (zeros) — skipping forever this zip"
+    ui_print "- init_boot$SLOT is EMPTY (zeros) — skipping"
   else
-    if inject_into_img init_boot "$IB"; then
-      ui_print "=== DONE early-init=$PATCHED_PART ==="
-      exit 0
-    }
+    inject_into_img init_boot "$IB" && DONE_INJECT=1
   fi
 else
   ui_print "- no init_boot$SLOT node"
 fi
 
-VB=$(byname vendor_boot)
-[ -n "$VB" ] && inject_into_img vendor_boot "$VB" && {
-  ui_print "=== DONE early-init=$PATCHED_PART ==="
-  exit 0
-}
+if [ -z "$DONE_INJECT" ]; then
+  VB=$(byname vendor_boot)
+  [ -n "$VB" ] && inject_into_img vendor_boot "$VB" && DONE_INJECT=1
+fi
 
-BB=$(byname boot)
-[ -n "$BB" ] && inject_into_img boot "$BB" && {
-  ui_print "=== DONE early-init=$PATCHED_PART ==="
-  exit 0
-}
+if [ -z "$DONE_INJECT" ]; then
+  BB=$(byname boot)
+  [ -n "$BB" ] && inject_into_img boot "$BB" && DONE_INJECT=1
+fi
 
-ui_print "ERROR: no flashable ramdisk with init.rc (init_boot empty; vendor_boot/boot no init.rc)"
-ui_print "Next: runtime find + ReSukiSU earliest module (timing risk vs zygote)"
-ui_print "Run on device and paste:"
-ui_print "  ls -l /dev/block/by-name/"
-ui_print "  find /system /system_ext /vendor /odm /product -name 'init.rc' 2>/dev/null | head"
-abort "no init.rc ramdisk target"
+if [ -n "$DONE_INJECT" ]; then
+  ui_print " "
+  ui_print "=== DONE early-init=$PATCHED_PART ==="
+  ui_print " "
+else
+  ui_print "ERROR: no flashable ramdisk with init.rc (init_boot empty; vendor_boot/boot no init.rc)"
+  ui_print "Next: runtime find + ReSukiSU earliest module (timing risk vs zygote)"
+  ui_print "Run on device and paste:"
+  ui_print "  ls -l /dev/block/by-name/"
+  ui_print "  find /system /system_ext /vendor /odm /product -name init.rc 2>/dev/null | head"
+  abort "no init.rc ramdisk target"
+fi
+
+## End install
