@@ -1,0 +1,38 @@
+name: Build Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ bpf-eun-baseline ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flex bison bc cpio libssl-dev xz-utils dwarves
+
+      - name: Build Image
+        run: |
+          # eun bpf baseline uses transsion9230_defconfig (CMDLINE="").
+          # Do NOT use Seuj unisoc_defconfig kitchen-sink CMDLINE on this track.
+          make LLVM=1 LLVM_IAS=1 O="out" transsion9230_defconfig
+          make LLVM=1 LLVM_IAS=1 O="out" -j$(nproc) Image
+
+      - name: Compress Image with xz -9e
+        run: |
+          xz -9e -k -c out/arch/arm64/boot/Image > out/arch/arm64/boot/Image.xz
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-Image-${{ github.sha }}
+          path: out/arch/arm64/boot/Image.xz
+          if-no-files-found: error
