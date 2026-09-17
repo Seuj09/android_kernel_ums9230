@@ -1,13 +1,26 @@
-# cgroup2 early-init (probe boot / vendor_boot)
+# cgroup2 early-init — BOOT nested ramdisk (Max / bootanimation path)
 
-On this Unisoc/GSI device **init_boot can be 8MB of zeros** — not usable.
-This zip skips empty init_boot and injects into the first of
-`vendor_boot` / `boot` that magiskboot-unpacks **and** contains `init.rc`.
+Same AnyKernel flow as the “Disable Bootanimation” zip:
 
-`skip_boot_image` = do not rewrite kernel Image.
+`split_boot` → `unpack_ramdisk` → patch → `repack_ramdisk` → `flash_boot`
 
-If installer aborts with no target, paste:
+**Not** `init_boot` (empty/zeros on this device).
+
+Injects `init.cgroup2_early.rc` + `cgroup2_early_fix.sh` into:
+- ramdisk root
+- `system/etc/ramdisk/` (Unisoc nested)
+- Magisk `overlay.d/` if present
+
+Also appends `import` lines to any `init*.rc` found.
+
+## Flash
+
+Re-download zip. Flash with ReSukiSU/Magisk AK3 or TWRP on **boot**.
+
+## Verify (A17)
+
 ```sh
-ls -l /dev/block/by-name/
-find /system /system_ext /vendor /odm /product -name 'init.rc' 2>/dev/null | head
+dmesg | grep cgroup2_early
+ls -la /sys/fs/cgroup/system /sys/fs/cgroup/apps
+getprop sys.boot_completed
 ```
