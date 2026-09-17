@@ -1,21 +1,13 @@
-# cgroup2 early-init — BOOT nested ramdisk (Max / bootanimation path)
+# cgroup2 early-init — boot nested + vendor_boot probe
 
-Same AnyKernel flow as the “Disable Bootanimation” zip:
+Jeus survey: **init_boot = zeros (dead)**. **boot** has ANDROID! + nested
+ramdisk. **vendor_boot** is live VNDRBOOT 100MB.
 
-`split_boot` → `unpack_ramdisk` → patch → `repack_ramdisk` → `flash_boot`
-
-**Not** `init_boot` (empty/zeros on this device).
-
-Injects `init.cgroup2_early.rc` + `cgroup2_early_fix.sh` into:
-- ramdisk root
-- `system/etc/ramdisk/` (Unisoc nested)
-- Magisk `overlay.d/` if present
-
-Also appends `import` lines to any `init*.rc` found.
-
-## Flash
-
-Re-download zip. Flash with ReSukiSU/Magisk AK3 or TWRP on **boot**.
+1. Primary: Max/bootanimation path on **boot** (`split_boot` /
+   `unpack_ramdisk` / inject `system/etc/ramdisk/` / `flash_boot`)
+2. Secondary: probe **vendor_boot** for `init.rc` / first_stage; inject only
+   if found (non-fatal if unpack fails)
+3. Never touch **init_boot**
 
 ## Verify (A17)
 
