@@ -12,7 +12,7 @@
 
 #define ON_BOOST		0
 #define OUT_BOOST		1
-#define SPRD_CPUFREQ_BOOST_DURATION	(60ul * HZ)
+#define SPRD_CPUFREQ_BOOST_DURATION	(600ul * HZ)  /* Helix-Tweaked: 10min boot boost (was 60s) */
 #define SPRD_DVFS_DEBUG_MAGIC		(0x5A)
 
 struct cluster_prop {

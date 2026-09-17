@@ -46,7 +46,7 @@
 #define SPRD_CPUFREQ_TEMP_UPDATE_HZ	(HZ / 2)
 #define SPRD_CPUFREQ_TEMP_MAX		200
 #define SPRD_CPUFREQ_TEMP_MIN		(-200)
-#define SPRD_CPUFREQ_DRV_BOOST_DURATOIN	(60ul * HZ)
+#define SPRD_CPUFREQ_DRV_BOOST_DURATOIN	(600ul * HZ)  /* Helix-Tweaked: 10min boot boost (was 60s) */
 
 #define sprd_cpufreq_data(cpu) \
 	cpufreq_datas[topology_physical_package_id(cpu)]
