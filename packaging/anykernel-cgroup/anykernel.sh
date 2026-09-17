@@ -1,12 +1,11 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## osm0sis @ xda-developers
-## Seuj09 ums9230: same flash flow as every-build AK3, plus boot ramdisk
-## cgroup2 early-init (dump_boot/write_boot instead of split_boot/flash_boot).
+## Seuj09 ums9230: Jeus Max-style AK3 + dump_boot/write_boot cgroup2 early-init.
+## Image = ba98de94 (cgroup_no_v1+memory). NOT Image-only — inject lives in BOOT ramdisk.
 
 ### AnyKernel setup
-# Global properties
 properties() { '
-kernel.string=AnyKernel3 Max Kernel + cgroup2 early-init (ba98de94)
+kernel.string=AnyKernel3 Max + cgroup2 early-init A17 (ba98de94)
 do.devicecheck=0
 do.modules=0
 do.systemless=1
@@ -21,28 +20,41 @@ supported.vendorpatchlevels=
 
 ### AnyKernel install
 
-## Boot shell variables
 BLOCK=boot
 IS_SLOT_DEVICE=1
 RAMDISK_COMPRESSION=auto
 PATCH_VBMETA_FLAG=auto
 
-# Import functions/variables and setup patching - see for reference (DO NOT REMOVE)
 . tools/ak3-core.sh
 
-## Start boot install
+## Start boot install — dump_boot required (split_boot/flash_boot alone WIPES inject)
 
-# Need ramdisk unpack to inject init.cgroup2_early.rc (Unisoc BOOT, not init_boot)
 dump_boot
 
 ui_print "- $(strings "${AKHOME}"/Image 2>/dev/null | grep -E -m1 'Linux version.*#' | awk '{print $3}')"
-ui_print "- cgroup2 early-init: inject init.cgroup2_early.rc"
+ui_print "- cgroup2 early-init: inject init.cgroup2_early.rc + fix.sh"
 
-# Overlay from zip ramdisk/ + force copy
-[ -f $home/ramdisk/init.cgroup2_early.rc ] && cp -f $home/ramdisk/init.cgroup2_early.rc $ramdisk/init.cgroup2_early.rc
-[ -f $home/ramdisk/cgroup2_early_fix.sh ] && cp -f $home/ramdisk/cgroup2_early_fix.sh $ramdisk/cgroup2_early_fix.sh
-chmod 755 $ramdisk/cgroup2_early_fix.sh 2>/dev/null || true
-chmod 644 $ramdisk/init.cgroup2_early.rc 2>/dev/null || true
+# Require inject sources in zip
+if [ ! -f $home/ramdisk/init.cgroup2_early.rc ]; then
+  ui_print "ERROR: missing ramdisk/init.cgroup2_early.rc in zip"
+  abort "cgroup2 early-init rc missing"
+fi
+if [ ! -f $home/ramdisk/cgroup2_early_fix.sh ]; then
+  ui_print "ERROR: missing ramdisk/cgroup2_early_fix.sh in zip"
+  abort "cgroup2 early-init fix.sh missing"
+fi
+
+cp -f $home/ramdisk/init.cgroup2_early.rc $ramdisk/init.cgroup2_early.rc
+cp -f $home/ramdisk/cgroup2_early_fix.sh $ramdisk/cgroup2_early_fix.sh
+chmod 755 $ramdisk/cgroup2_early_fix.sh
+chmod 644 $ramdisk/init.cgroup2_early.rc
+
+# Verify copies landed in unpacked BOOT ramdisk
+if [ ! -f $ramdisk/init.cgroup2_early.rc ] || [ ! -f $ramdisk/cgroup2_early_fix.sh ]; then
+  ui_print "ERROR: inject copy into ramdisk failed"
+  abort "cgroup2 inject copy failed"
+fi
+ui_print "- inject files present in ramdisk"
 
 if [ -f $ramdisk/init.rc ]; then
   backup_file $ramdisk/init.rc
@@ -54,18 +66,23 @@ if [ -f $ramdisk/init.rc ]; then
     else
       echo "import /init.cgroup2_early.rc" >> $ramdisk/init.rc
     fi
-    ui_print "- added import /init.cgroup2_early.rc"
+  fi
+  if grep -q "init.cgroup2_early.rc" $ramdisk/init.rc; then
+    ui_print "- verified import /init.cgroup2_early.rc in init.rc"
   else
-    ui_print "- import already present"
+    ui_print "ERROR: import line missing after insert"
+    abort "cgroup2 import verify failed"
   fi
 else
-  ui_print "WARNING: no init.rc in boot ramdisk — Image still flashed"
+  ui_print "ERROR: no init.rc in BOOT ramdisk — cannot inject"
+  abort "no init.rc in boot ramdisk"
 fi
 
-# Optional cmdline hygiene if header still disables memory/io
+# Match ba98de94 cmdline hygiene (do NOT add quiet/mute_console/nowatchdog here)
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
 patch_cmdline "cgroup_no_v1" "cgroup_no_v1=cpu,cpuset,blkio,io,memory"
 
+ui_print "- write_boot (Image + injected ramdisk)"
 write_boot
 
 ## End boot install
