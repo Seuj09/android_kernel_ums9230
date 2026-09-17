@@ -1,24 +1,20 @@
 # AnyKernel3 — ba98de94 Image + cgroup2 early-init (A17)
 
-## Layout
+## What it does
 
-| Partition | What this zip writes |
-|-----------|----------------------|
-| **boot** `_a`/`_b` | Kernel Image only (`split_boot`/`flash_boot`) |
-| **init_boot** `_a`/`_b` | `init.cgroup2_early.rc` + import (when partition exists) |
+1. **boot$SLOT** — `split_boot`/`flash_boot` kernel Image (+ cmdline hygiene)
+2. **init_boot$SLOT** — dump to **`init_boot.img`** (not leftover `boot.img`),
+   `magiskboot unpack` → inject `init.cgroup2_early.rc` → repack → write back,
+   then re-dump prove.
 
-GSI devices often have **no `init.rc` on boot** — inject goes to **init_boot**.
-Installer prints which slot (`_a`/`_b`) and which partition was patched, then
-re-dumps to prove `cgroup2_early` is present.
+GSI: `init.rc` lives on **init_boot**, not boot.
 
-## Flash
+## Flash (ReSukiSU / Magisk AK3 or TWRP)
 
-1. Re-download the zip (do not use an old copy).
-2. TWRP/OrangeFox → install on the **active** slot.
-3. Confirm recovery can write `init_boot` (not only `boot`).
-4. If Magisk/ReSukiSU rewrote `init_boot`, flash Magisk first, then this zip.
+Re-download zip. If Magisk owns init_boot, flash Magisk first, then this zip.
+Boot Image can already be on device; zip still re-flashes Image then patches init_boot.
 
-## Verify after reboot (A17)
+## Verify
 
 ```sh
 dmesg | grep cgroup2_early
