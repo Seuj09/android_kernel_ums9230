@@ -1,8 +1,13 @@
-# AnyKernel3 — cgroup2 early-init → init_boot (A17)
+# cgroup2 early-init (probe boot / vendor_boot)
 
-Hardened `magiskboot unpack` of device `init_boot` (exit code, 64-byte hex,
-Magisk 30.7 + 31.0 fallbacks). `skip_boot_image` = do **not** rewrite boot
-(Image already flashed).
+On this Unisoc/GSI device **init_boot can be 8MB of zeros** — not usable.
+This zip skips empty init_boot and injects into the first of
+`vendor_boot` / `boot` that magiskboot-unpacks **and** contains `init.rc`.
 
-If unpack still fails: paste installer log and
-`adb pull /dev/block/by-name/init_boot_a init_boot_a.img` (or `_b`).
+`skip_boot_image` = do not rewrite kernel Image.
+
+If installer aborts with no target, paste:
+```sh
+ls -l /dev/block/by-name/
+find /system /system_ext /vendor /odm /product -name 'init.rc' 2>/dev/null | head
+```
