@@ -2,7 +2,7 @@
 ## osm0sis @ xda-developers
 ## Seuj09 A17 cgroup2 early-init:
 ##  1) BOOT nested ramdisk (Max/bootanimation path) — primary
-##  2) vendor_boot if it has init.rc / first_stage — secondary
+##  2) vendor_boot if it has init.rc / first_stage — secondary (non-fatal)
 ##  NEVER touch init_boot (8MB zeros on this device)
 
 ### AnyKernel setup
@@ -52,9 +52,10 @@ install_inject() {
   return 0
 }
 
+# Patches init*.rc imports; echoes "1" if any rc was found/touched, else "0"
 hook_import() {
   local root=$1 f hooked=0
-  [ -d "$root" ] || return 0
+  [ -d "$root" ] || { echo 0; return 0; }
   for f in "$root"/init.rc "$root"/init*.rc \
            "$root"/system/etc/ramdisk/init.rc "$root"/system/etc/ramdisk/init*.rc \
            "$root"/first_stage_ramdisk/init.rc "$root"/first_stage_ramdisk/system/etc/init/*.rc; do
@@ -72,7 +73,8 @@ hook_import() {
       fi
     fi
   done
-  return $hooked
+  echo $hooked
+  return 0
 }
 
 ## ——— 1) BOOT: Max/bootanimation path ———
@@ -95,8 +97,8 @@ install_inject "$RD" || abort "boot ramdisk dir missing"
 [ -d "$ALT" ] && install_inject "$ALT"
 
 BOOT_HOOKED=0
-hook_import "$RD" && BOOT_HOOKED=1
-[ -d "$ALT" ] && hook_import "$ALT" && BOOT_HOOKED=1
+[ "$(hook_import "$RD")" = "1" ] && BOOT_HOOKED=1
+[ -d "$ALT" ] && [ "$(hook_import "$ALT")" = "1" ] && BOOT_HOOKED=1
 
 for base in "$RD" "$ALT"; do
   [ -d "$base" ] || continue
@@ -120,40 +122,71 @@ repack_ramdisk
 flash_boot
 ui_print "- boot$SLOT: Image + nested ramdisk written (hooked=$BOOT_HOOKED)"
 
-## ——— 2) vendor_boot probe (VNDRBOOT 100MB) if useful ———
+## ——— 2) vendor_boot probe (non-fatal; never uses aborting dump_boot) ———
 VB=$(byname vendor_boot)
 VENDOR_DONE=0
 if [ -n "$VB" ]; then
   ui_print "- [2] probe vendor_boot$SLOT ($VB) for init.rc / first_stage"
-  block=vendor_boot
-  is_slot_device=1
-  ramdisk_compression=auto
-  patch_vbmeta_flag=auto
-  reset_ak
-  # Prefer AK3 dump; on failure fall back to explicit dd+magiskboot
-  if dump_boot; then
-    VRD=$RAMDISK
-    [ -d "$VRD" ] || VRD=$AKHOME/ramdisk
-    ui_print "- vendor_boot ramdisk top: $(ls "$VRD" 2>/dev/null | head -20)"
-    if [ -f "$VRD/init.rc" ] || ls "$VRD"/init*.rc >/dev/null 2>&1 \
-       || [ -d "$VRD/first_stage_ramdisk" ] \
-       || ls "$VRD"/system/etc/init/*.rc >/dev/null 2>&1; then
-      ui_print "- vendor_boot has init/first_stage — injecting"
+  VIMG=$AKHOME/vendor_boot.img
+  VWORK=$AKHOME/vbwork
+  VOUT=$AKHOME/vendor_boot-new.img
+  rm -rf "$VWORK" "$VIMG" "$VOUT"
+  mkdir -p "$VWORK"
+  dd if="$VB" of="$VIMG" bs=4096
+  ui_print "- vendor_boot.img size=$(wc -c < "$VIMG")"
+  cd "$VWORK"
+  if ! "$MB" unpack -h "$VIMG" >"$AKHOME/vb-unpack.log" 2>&1 \
+     && ! "$MB" unpack "$VIMG" >"$AKHOME/vb-unpack.log" 2>&1; then
+    ui_print "- vendor_boot unpack failed — leave untouched (not fatal)"
+    ui_print "- $(head -5 "$AKHOME/vb-unpack.log" 2>/dev/null)"
+  else
+    VRD=""
+    if [ -f ramdisk.cpio ]; then
+      mkdir -p rd && cd rd
+      EXTRACT_UNSAFE_SYMLINKS=1 cpio -idm < ../ramdisk.cpio 2>/dev/null && VRD=$VWORK/rd
+      cd "$VWORK"
+    fi
+    for d in "$VWORK" "$VWORK/rd" "$VWORK/vendor_ramdisk" "$VWORK/ramdisk" \
+             "$VWORK"/vendor_ramdisk_* "$VWORK"/ramdisk_*; do
+      [ -d "$d" ] || continue
+      if [ -f "$d/init.rc" ] || ls "$d"/init*.rc >/dev/null 2>&1 \
+         || [ -d "$d/first_stage_ramdisk" ] \
+         || ls "$d"/system/etc/init/*.rc >/dev/null 2>&1; then
+        VRD=$d
+        break
+      fi
+    done
+    if [ -n "$VRD" ]; then
+      ui_print "- vendor_boot has init/first_stage at ${VRD#$AKHOME/} — injecting"
       install_inject "$VRD"
-      hook_import "$VRD"
+      hook_import "$VRD" >/dev/null
       if [ -d "$VRD/first_stage_ramdisk" ]; then
         install_inject "$VRD/first_stage_ramdisk"
-        hook_import "$VRD/first_stage_ramdisk"
+        hook_import "$VRD/first_stage_ramdisk" >/dev/null
       fi
-      write_boot
-      VENDOR_DONE=1
-      ui_print "- vendor_boot$SLOT: written"
+      if [ -f "$VWORK/ramdisk.cpio" ] && [ -d "$VWORK/rd" ]; then
+        cd "$VWORK/rd"
+        find . | cpio -H newc -o > "$VWORK/ramdisk.cpio"
+        cd "$VWORK"
+        if "$MB" repack "$VIMG" "$VOUT" >"$AKHOME/vb-repack.log" 2>&1; then
+          dd if="$VOUT" of="$VB" bs=4096
+          sync
+          VENDOR_DONE=1
+          ui_print "- vendor_boot$SLOT: written"
+        else
+          ui_print "- vendor_boot repack failed — leave untouched"
+          ui_print "- $(head -5 "$AKHOME/vb-repack.log" 2>/dev/null)"
+        fi
+      else
+        ui_print "- vendor_boot layout not single ramdisk.cpio — leave untouched (probe only)"
+        ui_print "- vb top: $(ls "$VWORK" 2>/dev/null | head -15)"
+      fi
     else
       ui_print "- vendor_boot$SLOT: no init.rc/first_stage — leave untouched"
+      ui_print "- vb top: $(ls "$VWORK" 2>/dev/null | head -15)"
     fi
-  else
-    ui_print "- vendor_boot dump_boot failed — leave untouched (not fatal)"
   fi
+  cd "$AKHOME"
 else
   ui_print "- no vendor_boot$SLOT node"
 fi
