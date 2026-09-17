@@ -1,21 +1,21 @@
 # AnyKernel3 — ba98de94 Image + cgroup2 early-init (A17)
 
-`dump_boot` → inject → `write_boot` for Unisoc **BOOT** (not init_boot).
+## Why init_boot
 
-Inject sources live in zip `cgroup2/` (not `ramdisk/`) so AK3 unpack does not
-eat them. Uses `$AKHOME` / `$RAMDISK` (not legacy `$home` / `$ramdisk`).
+On GSI / modern Unisoc layouts, **BOOT** often has the kernel only (no
+`init.rc` in its ramdisk). The generic ramdisk with `init.rc` lives on
+**`init_boot`**. This zip:
 
-## CRITICAL: Image-only wipes the inject
-
-Do **not** flash Image-only after this for A17. Re-flash this full zip after any
-Image update.
+1. `split_boot` + `flash_boot` → Image onto **boot**
+2. `dump_boot` + inject + `write_boot` → early-init onto **init_boot**
+   (falls back to boot only if `init_boot` is missing and boot has `init.rc`)
 
 ## Flash
 
-1. TWRP / OrangeFox → install this zip on **boot**
-2. Reboot A17 GSI
+TWRP/OrangeFox → install this zip. Re-flash after Magisk if Magisk rewrites
+init_boot.
 
-## Verify
+## Verify (A17)
 
 ```sh
 dmesg | grep cgroup2_early

@@ -1,11 +1,11 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## osm0sis @ xda-developers
-## Seuj09 ums9230: dump_boot/write_boot cgroup2 early-init (A17).
-## Image = ba98de94 (cgroup_no_v1+memory). Inject sources live in cgroup2/ (NOT zip ramdisk/).
+## Seuj09 ums9230: Image on boot + cgroup2 early-init on init_boot (GSI).
+## Boot ramdisk often has NO init.rc — inject must target init_boot.
 
 ### AnyKernel setup
 properties() { '
-kernel.string=AnyKernel3 Max + cgroup2 early-init A17 (ba98de94)
+kernel.string=AnyKernel3 Max + cgroup2 early-init A17 (ba98de94 / init_boot)
 do.devicecheck=0
 do.modules=0
 do.systemless=1
@@ -20,73 +20,93 @@ supported.vendorpatchlevels=
 
 ### AnyKernel install
 
-BLOCK=boot
-IS_SLOT_DEVICE=1
-RAMDISK_COMPRESSION=auto
-PATCH_VBMETA_FLAG=auto
+## —— 1) BOOT: flash kernel Image only ——
+block=boot
+is_slot_device=1
+ramdisk_compression=auto
+patch_vbmeta_flag=auto
 
 . tools/ak3-core.sh
 
-## Start boot install — dump_boot required (split_boot/flash_boot alone WIPES inject)
-
-# Sources must NOT live under zip ramdisk/ — dump_boot moves that dir to rdtmp.
 SRC=$AKHOME/cgroup2
-if [ ! -f "$SRC/init.cgroup2_early.rc" ]; then
-  ui_print "ERROR: missing cgroup2/init.cgroup2_early.rc in zip"
-  abort "cgroup2 early-init rc missing"
+if [ ! -f "$SRC/init.cgroup2_early.rc" ] || [ ! -f "$SRC/cgroup2_early_fix.sh" ]; then
+  ui_print "ERROR: missing cgroup2/ inject sources in zip"
+  abort "cgroup2 inject sources missing"
 fi
-if [ ! -f "$SRC/cgroup2_early_fix.sh" ]; then
-  ui_print "ERROR: missing cgroup2/cgroup2_early_fix.sh in zip"
-  abort "cgroup2 early-init fix.sh missing"
-fi
-
-dump_boot
 
 ui_print "- $(strings "${AKHOME}"/Image 2>/dev/null | grep -E -m1 'Linux version.*#' | awk '{print $3}')"
-ui_print "- cgroup2 early-init: inject into unpacked BOOT ramdisk"
+ui_print "- boot: split_boot + flash_boot (Image)"
 
-if [ ! -d "$RAMDISK" ]; then
-  ui_print "ERROR: dump_boot left no \$RAMDISK dir"
-  abort "no unpacked ramdisk"
-fi
-if [ ! -f "$RAMDISK/init.rc" ]; then
-  ui_print "ERROR: no init.rc in BOOT ramdisk — device may use init_boot"
-  abort "no init.rc in boot ramdisk"
-fi
-
-cp -f "$SRC/init.cgroup2_early.rc" "$RAMDISK/init.cgroup2_early.rc"
-cp -f "$SRC/cgroup2_early_fix.sh" "$RAMDISK/cgroup2_early_fix.sh"
-chmod 755 "$RAMDISK/cgroup2_early_fix.sh"
-chmod 644 "$RAMDISK/init.cgroup2_early.rc"
-
-if [ ! -f "$RAMDISK/init.cgroup2_early.rc" ] || [ ! -f "$RAMDISK/cgroup2_early_fix.sh" ]; then
-  ui_print "ERROR: inject copy into ramdisk failed"
-  abort "cgroup2 inject copy failed"
-fi
-ui_print "- inject files present in ramdisk"
-
-backup_file "$RAMDISK/init.rc"
-if ! grep -q "init.cgroup2_early.rc" "$RAMDISK/init.rc"; then
-  if grep -q "import /init.environ.rc" "$RAMDISK/init.rc"; then
-    insert_line "$RAMDISK/init.rc" "init.cgroup2_early.rc" after "import /init.environ.rc" "import /init.cgroup2_early.rc"
-  elif grep -q "^import " "$RAMDISK/init.rc"; then
-    insert_line "$RAMDISK/init.rc" "init.cgroup2_early.rc" after "^import " "import /init.cgroup2_early.rc"
-  else
-    echo "import /init.cgroup2_early.rc" >> "$RAMDISK/init.rc"
-  fi
-fi
-if grep -q "init.cgroup2_early.rc" "$RAMDISK/init.rc"; then
-  ui_print "- verified import /init.cgroup2_early.rc in init.rc"
-else
-  ui_print "ERROR: import line missing after insert"
-  abort "cgroup2 import verify failed"
-fi
-
-# Match ba98de94 cmdline hygiene (do NOT add quiet/mute_console/nowatchdog here)
+split_boot
+# ba98de94-class cmdline hygiene on boot header (built-in CMDLINE also has this)
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
 patch_cmdline "cgroup_no_v1" "cgroup_no_v1=cpu,cpuset,blkio,io,memory"
+flash_boot
 
-ui_print "- write_boot (Image + injected ramdisk)"
-write_boot
+## —— 2) INIT_BOOT (or BOOT fallback): inject early-init ——
+cgroup2_inject() {
+  ui_print "- inject init.cgroup2_early.rc + fix.sh into $1 ramdisk"
 
-## End boot install
+  if [ ! -d "$RAMDISK" ]; then
+    ui_print "ERROR: no unpacked ramdisk dir after dump_boot ($1)"
+    abort "no unpacked ramdisk"
+  fi
+  if [ ! -f "$RAMDISK/init.rc" ]; then
+    ui_print "ERROR: no init.rc in $1 ramdisk"
+    return 1
+  fi
+
+  cp -f "$SRC/init.cgroup2_early.rc" "$RAMDISK/init.cgroup2_early.rc"
+  cp -f "$SRC/cgroup2_early_fix.sh" "$RAMDISK/cgroup2_early_fix.sh"
+  chmod 755 "$RAMDISK/cgroup2_early_fix.sh"
+  chmod 644 "$RAMDISK/init.cgroup2_early.rc"
+
+  backup_file "$RAMDISK/init.rc"
+  if ! grep -q "init.cgroup2_early.rc" "$RAMDISK/init.rc"; then
+    if grep -q "import /init.environ.rc" "$RAMDISK/init.rc"; then
+      insert_line "$RAMDISK/init.rc" "init.cgroup2_early.rc" after "import /init.environ.rc" "import /init.cgroup2_early.rc"
+    elif grep -q "^import " "$RAMDISK/init.rc"; then
+      insert_line "$RAMDISK/init.rc" "init.cgroup2_early.rc" after "^import " "import /init.cgroup2_early.rc"
+    else
+      echo "import /init.cgroup2_early.rc" >> "$RAMDISK/init.rc"
+    fi
+  fi
+  if ! grep -q "init.cgroup2_early.rc" "$RAMDISK/init.rc"; then
+    ui_print "ERROR: import line missing after insert ($1)"
+    abort "cgroup2 import verify failed"
+  fi
+  ui_print "- verified import on $1"
+  write_boot
+  return 0
+}
+
+# Prefer init_boot when the partition exists (GSI / hdr v3+)
+if [ -e "/dev/block/by-name/init_boot$SLOT" ] || [ -e "/dev/block/bootdevice/by-name/init_boot$SLOT" ]; then
+  ui_print "- init_boot$SLOT present — injecting there (boot has no init.rc)"
+  block=init_boot
+  is_slot_device=1
+  ramdisk_compression=auto
+  patch_vbmeta_flag=auto
+  reset_ak
+  dump_boot
+  cgroup2_inject init_boot || abort "init_boot inject failed"
+else
+  ui_print "- no init_boot partition — trying BOOT ramdisk inject"
+  block=boot
+  is_slot_device=1
+  ramdisk_compression=auto
+  patch_vbmeta_flag=auto
+  reset_ak
+  dump_boot
+  if [ -f "$RAMDISK/init.rc" ]; then
+    cgroup2_inject boot || abort "boot inject failed"
+  else
+    ui_print "ERROR: boot ramdisk has no init.rc and no init_boot partition"
+    ui_print "Cannot install cgroup2 early-init on this layout"
+    abort "no init.rc target (boot/init_boot)"
+  fi
+fi
+
+ui_print "- done (Image on boot + cgroup2 early-init on ramdisk partition)"
+
+## End install
