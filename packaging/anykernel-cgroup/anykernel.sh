@@ -52,9 +52,10 @@ RD=$RAMDISK
 [ -d "$RD" ] || RD=$AKHOME/ramdisk
 ALT=$AKHOME/rdtmp
 
-ui_print "- ramdisk top: $(ls "$RD" 2>/dev/null | head -20)"
+# Recovery treats each newline after ui_print as a command (E:unknown command [dev]).
+ui_print "- ramdisk top: $(ls "$RD" 2>/dev/null | tr '\n' ' ')"
 if [ -d "$RD/system/etc/ramdisk" ]; then
-  ui_print "- nested system/etc/ramdisk: $(ls "$RD/system/etc/ramdisk" 2>/dev/null | head -20)"
+  ui_print "- nested system/etc/ramdisk: $(ls "$RD/system/etc/ramdisk" 2>/dev/null | tr '\n' ' ')"
 fi
 
 # Copy inject into classic root + Unisoc nested path (+ rdtmp fallback like bootanim)
