@@ -179,8 +179,8 @@ unpack_ramdisk() {
   if [ ! "$(ls -A 2>/dev/null)" ]; then
     abort "Unpacking ramdisk failed. Aborting... $(cat $AKHOME/cpiotmp 2>/dev/null)";
   fi;
-  if [ -d "$AKHOME/rdtmp" ]; then
-    cp -af $AKHOME/rdtmp/* .;
+  if [ -d "$AKHOME/rdtmp" ] && [ "$(ls -A "$AKHOME/rdtmp" 2>/dev/null)" ]; then
+    cp -af "$AKHOME/rdtmp"/. "$RAMDISK"/;
   fi;
 }
 ### dump_boot (dump and split image, then extract ramdisk)
@@ -201,7 +201,11 @@ repack_ramdisk() {
     RAMDISK_COMPRESSION=auto;
   fi;
   case $RAMDISK_COMPRESSION in
-    auto|"") comp=$(ls $SPLITIMG/ramdisk.cpio.* 2>/dev/null | grep -v 'mtk' | rev | cut -d. -f1 | rev);;
+    auto|"")
+      # OrangeFox PATH has no `rev`; take suffix after last dot (lz4_legacy, gz, …)
+      _rdf=$(ls $SPLITIMG/ramdisk.cpio.* 2>/dev/null | grep -v 'mtk' | head -n1);
+      comp=${_rdf##*.};
+      unset _rdf;;
     none|cpio) comp="";;
     gz) comp=gzip;;
     lzo) comp=lzop;;
