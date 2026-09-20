@@ -173,9 +173,11 @@ unpack_ramdisk() {
   chmod 755 $RAMDISK;
 
   cd $RAMDISK;
-  EXTRACT_UNSAFE_SYMLINKS=1 cpio -d -F $SPLITIMG/ramdisk.cpio -i;
-  if [ $? != 0 -o ! "$(ls)" ]; then
-    abort "Unpacking ramdisk failed. Aborting...";
+  # Unisoc lz4_legacy ramdisk cpio often contains a "." entry; busybox
+  # cpio then prints ".: File exists" and returns 1 even though extract worked.
+  EXTRACT_UNSAFE_SYMLINKS=1 cpio -d -u -F $SPLITIMG/ramdisk.cpio -i 2>$AKHOME/cpiotmp || true;
+  if [ ! "$(ls -A 2>/dev/null)" ]; then
+    abort "Unpacking ramdisk failed. Aborting... $(cat $AKHOME/cpiotmp 2>/dev/null)";
   fi;
   if [ -d "$AKHOME/rdtmp" ]; then
     cp -af $AKHOME/rdtmp/* .;

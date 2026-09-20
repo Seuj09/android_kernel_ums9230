@@ -32,6 +32,18 @@ SRC=$AKHOME/cgroup2
 ui_print "- slot=$SLOT"
 ui_print "- Max/bootanim style: split_boot + unpack_ramdisk on boot (not init_boot)"
 
+# Zip must not pre-populate ramdisk/ — unpack_ramdisk extracts boot's
+# lz4_legacy cpio there. Inject sources live in cgroup2/.
+rm -rf "$AKHOME/ramdisk"
+mkdir -p "$AKHOME/ramdisk"
+
+# Header v4 + lz4_legacy: prefer magiskboot31 if present (rust magiskboot
+# hits ASN.1 DER on some Unisoc vbmeta footers).
+if [ -x "$BIN/magiskboot31" ]; then
+  ui_print "- using tools/magiskboot31"
+  magiskboot() { "$BIN/magiskboot31" "$@"; }
+fi
+
 split_boot
 unpack_ramdisk
 
