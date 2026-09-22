@@ -225,13 +225,13 @@ static bool kcompressd_store(struct page *page)
 		depth = KCOMPRESS_FIFO_SIZE;
 
 	/* If FIFO is full, swap out the head synchronously to make room. */
-	if (kfifo_len(pgdat->kcompress_fifo) >= depth * sizeof(page)) {
-		if (!kfifo_out(pgdat->kcompress_fifo, &head, sizeof(page)))
+	if (kfifo_len((struct kfifo *)pgdat->kcompress_fifo) >= depth * sizeof(page)) {
+		if (!kfifo_out((struct kfifo *)pgdat->kcompress_fifo, &head, sizeof(page)))
 			return false;
 	}
 
 	get_page(page);
-	ret = kfifo_in(pgdat->kcompress_fifo, &page, sizeof(page));
+	ret = kfifo_in((struct kfifo *)pgdat->kcompress_fifo, &page, sizeof(page));
 	if (likely(ret == sizeof(page))) {
 		/*
 		 * Mark writeback + unlock so shrink_page_list treats this as
@@ -284,10 +284,10 @@ int kcompressd(void *p)
 
 	while (!kthread_should_stop()) {
 		wait_event_interruptible(pgdat->kcompressd_wait,
-				!kfifo_is_empty(pgdat->kcompress_fifo) ||
+				!kfifo_is_empty((struct kfifo *)pgdat->kcompress_fifo) ||
 				kthread_should_stop());
 
-		while (kfifo_out(pgdat->kcompress_fifo, &page, sizeof(page))) {
+		while (kfifo_out((struct kfifo *)pgdat->kcompress_fifo, &page, sizeof(page))) {
 			lock_page(page);
 			if (PageWriteback(page))
 				end_page_writeback(page);

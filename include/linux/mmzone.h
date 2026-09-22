@@ -970,11 +970,10 @@ typedef struct pglist_data {
 	int kswapd_failures;		/* Number of 'reclaimed == 0' runs */
 
 #ifdef CONFIG_KCOMPRESSD
-struct kfifo;
 #define KCOMPRESS_FIFO_SIZE 256
 	wait_queue_head_t kcompressd_wait;
 	struct task_struct *kcompressd;
-	struct kfifo *kcompress_fifo; /* allocated in kswapd_run; avoid kfifo.h here */
+	void *kcompress_fifo; /* struct kfifo *; allocated in kswapd_run */
 #endif
 
 #ifdef CONFIG_COMPACTION

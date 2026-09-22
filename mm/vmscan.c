@@ -7145,13 +7145,13 @@ int kswapd_run(int nid)
 		return ret;
 	}
 #ifdef CONFIG_KCOMPRESSD
-	pgdat->kcompress_fifo = kmalloc(sizeof(*pgdat->kcompress_fifo),
+	pgdat->kcompress_fifo = kmalloc(sizeof(struct kfifo),
 					GFP_KERNEL);
 	if (!pgdat->kcompress_fifo) {
 		pr_err("%s: fail to alloc kcompress_fifo\n", __func__);
 		return -ENOMEM;
 	}
-	ret = kfifo_alloc(pgdat->kcompress_fifo,
+	ret = kfifo_alloc((struct kfifo *)pgdat->kcompress_fifo,
 			KCOMPRESS_FIFO_SIZE * sizeof(struct page *),
 			GFP_KERNEL);
 	if (ret) {
@@ -7166,7 +7166,7 @@ int kswapd_run(int nid)
 		pr_err("Failed to start kcompressd on node %d, ret=%ld\n",
 				nid, PTR_ERR(pgdat->kcompressd));
 		pgdat->kcompressd = NULL;
-		kfifo_free(pgdat->kcompress_fifo);
+		kfifo_free((struct kfifo *)pgdat->kcompress_fifo);
 		kfree(pgdat->kcompress_fifo);
 		pgdat->kcompress_fifo = NULL;
 	} else {
@@ -7195,7 +7195,7 @@ void kswapd_stop(int nid)
 		pgdat->kcompressd = NULL;
 	}
 	if (pgdat->kcompress_fifo) {
-		kfifo_free(pgdat->kcompress_fifo);
+		kfifo_free((struct kfifo *)pgdat->kcompress_fifo);
 		kfree(pgdat->kcompress_fifo);
 		pgdat->kcompress_fifo = NULL;
 	}
