@@ -238,7 +238,7 @@ static bool kcompressd_store(struct page *page)
 		 * PAGE_SUCCESS under writeback (page already unlocked).
 		 * kcompressd clears the placeholder before real writeout.
 		 */
-		SetPageWriteback(page);
+		set_page_writeback(page);
 		unlock_page(page);
 		wake_up_interruptible(&pgdat->kcompressd_wait);
 	} else {
