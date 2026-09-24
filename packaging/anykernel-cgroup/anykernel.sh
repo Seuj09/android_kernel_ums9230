@@ -1,13 +1,14 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## osm0sis @ xda-developers
-## Seuj09: cgroup2 early-init + ion chown on BOOT nested ramdisk (Max / bootanimation style)
-## Same path as "Disable Bootanimation" zip: split_boot → unpack_ramdisk → patch → repack → flash_boot
+## Seuj09: A17 ION / SELinux permissive TEST (bpf-a17-selinux-test)
+## cgroup2 early-init + ion chown on BOOT nested ramdisk
+## + androidboot.selinux=permissive on boot header cmdline (and vendor_boot/bootconfig if present)
+## Same path as "Disable Bootanimation": split_boot → unpack_ramdisk → patch → repack → flash_boot
 ## init_boot is EMPTY on this device — do not use it.
-## NO androidboot.selinux=permissive on bpf (enforcing). Use bpf-a17-selinux-test for permissive TEST.
 
 ### AnyKernel setup
 properties() { '
-kernel.string=AnyKernel3 cgroup2+ion on BOOT ramdisk (enforcing)
+kernel.string=AnyKernel3 cgroup2+ion + selinux=permissive TEST
 do.devicecheck=0
 do.modules=0
 do.systemless=1
@@ -31,16 +32,12 @@ SRC=$AKHOME/cgroup2
 [ -f "$SRC/init.cgroup2_early.rc" ] && [ -f "$SRC/cgroup2_early_fix.sh" ] || abort "missing cgroup2/ sources"
 
 ui_print "- slot=$SLOT"
+ui_print "- permissive TEST: cgroup2 + ion + androidboot.selinux=permissive"
 ui_print "- Max/bootanim style: split_boot + unpack_ramdisk on boot (not init_boot)"
-ui_print "- cgroup2 early-init + ion chown/chmod (enforcing — no selinux=permissive)"
 
-# Zip must not pre-populate ramdisk/ — unpack_ramdisk extracts boot's
-# lz4_legacy cpio there. Inject sources live in cgroup2/.
 rm -rf "$AKHOME/ramdisk"
 mkdir -p "$AKHOME/ramdisk"
 
-# Header v4 + lz4_legacy: prefer magiskboot31 if present (rust magiskboot
-# hits ASN.1 DER on some Unisoc vbmeta footers).
 if [ -x "$BIN/magiskboot31" ]; then
   ui_print "- using tools/magiskboot31"
   magiskboot() { "$BIN/magiskboot31" "$@"; }
@@ -49,18 +46,15 @@ fi
 split_boot
 unpack_ramdisk
 
-# After unpack, live tree is $RAMDISK; zip overlay may be in rdtmp (same as bootanim fallback)
 RD=$RAMDISK
 [ -d "$RD" ] || RD=$AKHOME/ramdisk
 ALT=$AKHOME/rdtmp
 
-# Recovery treats each newline after ui_print as a command (E:unknown command [dev]).
 ui_print "- ramdisk top: $(ls "$RD" 2>/dev/null | tr '\n' ' ')"
 if [ -d "$RD/system/etc/ramdisk" ]; then
   ui_print "- nested system/etc/ramdisk: $(ls "$RD/system/etc/ramdisk" 2>/dev/null | tr '\n' ' ')"
 fi
 
-# Copy inject into classic root + Unisoc nested path (+ rdtmp fallback like bootanim)
 install_inject() {
   local root=$1
   [ -d "$root" ] || return 1
@@ -77,7 +71,6 @@ install_inject() {
 install_inject "$RD" || abort "ramdisk dir missing after unpack"
 [ -d "$ALT" ] && install_inject "$ALT"
 
-# Hook: add import to every init*.rc we can find (root or nested)
 hook_import() {
   local root=$1 f
   [ -d "$root" ] || return 0
@@ -90,7 +83,6 @@ hook_import() {
       elif grep -q "^import " "$f"; then
         sed -i '0,/^import /s//import \/init.cgroup2_early.rc\n&/' "$f"
       else
-        # Unisoc nested often uses relative imports — try both forms
         echo "import /init.cgroup2_early.rc" >> "$f"
         echo "import /system/etc/ramdisk/init.cgroup2_early.rc" >> "$f"
       fi
@@ -101,7 +93,6 @@ hook_import() {
 hook_import "$RD"
 [ -d "$ALT" ] && hook_import "$ALT"
 
-# Magisk overlay.d early hook if Magisk ramdisk present
 for base in "$RD" "$ALT"; do
   [ -d "$base" ] || continue
   if [ -d "$base/overlay.d" ] || [ -d "$base/.backup" ]; then
@@ -109,12 +100,10 @@ for base in "$RD" "$ALT"; do
     mkdir -p "$base/overlay.d/sbin"
     cp -f "$SRC/cgroup2_early_fix.sh" "$base/overlay.d/sbin/cgroup2_early_fix.sh"
     chmod 755 "$base/overlay.d/sbin/cgroup2_early_fix.sh"
-    # Magisk executes *.rc under overlay.d
     cp -f "$SRC/init.cgroup2_early.rc" "$base/overlay.d/init.cgroup2_early.rc"
   fi
 done
 
-# Prove files landed
 if [ ! -f "$RD/init.cgroup2_early.rc" ] && [ ! -f "$RD/system/etc/ramdisk/init.cgroup2_early.rc" ]; then
   abort "inject files missing after copy"
 fi
@@ -123,17 +112,66 @@ if ! grep -q "chown system graphics /dev/ion" "$SRC/init.cgroup2_early.rc"; then
 fi
 ui_print "- inject files present in boot ramdisk (cgroup2 + ion)"
 
-# Keep ba98de94 cmdline hygiene on boot header — NO androidboot.selinux=permissive
+# ba98de94 cmdline hygiene + SELinux permissive TEST
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
 patch_cmdline "cgroup_no_v1" "cgroup_no_v1=cpu,cpuset,blkio,io,memory"
+patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive"
+ui_print "- patched BOOT header cmdline: androidboot.selinux=permissive"
+
+# Header v4 bootconfig (if magiskboot unpacked a bootconfig blob into SPLITIMG)
+if [ -f "$SPLITIMG/bootconfig" ]; then
+  if ! grep -q "androidboot.selinux" "$SPLITIMG/bootconfig"; then
+    echo "androidboot.selinux = \"permissive\"" >> "$SPLITIMG/bootconfig"
+    ui_print "- appended androidboot.selinux to BOOT bootconfig"
+  else
+    sed -i 's/androidboot\.selinux.*/androidboot.selinux = "permissive"/' "$SPLITIMG/bootconfig"
+    ui_print "- updated androidboot.selinux in BOOT bootconfig"
+  fi
+else
+  ui_print "- no BOOT bootconfig file after unpack (cmdline-only path)"
+fi
 
 ui_print "- repack_ramdisk + flash_boot (Image + patched BOOT ramdisk)"
 repack_ramdisk
 flash_boot
 
+# Also try vendor_boot when present (hdr v3/v4 often keeps androidboot.* there).
+# flash_boot prefers AKHOME/Image as kernel — move it aside so we only rewrite cmdline.
+VB=
+for p in /dev/block/by-name/vendor_boot$SLOT /dev/block/bootdevice/by-name/vendor_boot$SLOT; do
+  [ -e "$p" ] && VB=$p && break
+done
+if [ -n "$VB" ]; then
+  ui_print "- vendor_boot$SLOT present — patch androidboot.selinux there too"
+  mv -f "$AKHOME/Image" "$AKHOME/Image.bootkeep"
+  block=vendor_boot
+  is_slot_device=1
+  ramdisk_compression=auto
+  patch_vbmeta_flag=auto
+  reset_ak
+  split_boot
+  patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive"
+  ui_print "- patched vendor_boot header cmdline: androidboot.selinux=permissive"
+  if [ -f "$SPLITIMG/bootconfig" ]; then
+    if ! grep -q "androidboot.selinux" "$SPLITIMG/bootconfig"; then
+      echo "androidboot.selinux = \"permissive\"" >> "$SPLITIMG/bootconfig"
+      ui_print "- appended androidboot.selinux to vendor_boot bootconfig"
+    else
+      sed -i 's/androidboot\.selinux.*/androidboot.selinux = "permissive"/' "$SPLITIMG/bootconfig"
+      ui_print "- updated androidboot.selinux in vendor_boot bootconfig"
+    fi
+  else
+    ui_print "- no vendor_boot bootconfig file after unpack"
+  fi
+  flash_boot
+  mv -f "$AKHOME/Image.bootkeep" "$AKHOME/Image"
+else
+  ui_print "- no vendor_boot partition — BOOT cmdline/bootconfig only"
+fi
+
 ui_print " "
-ui_print "=== DONE: cgroup2+ion early-init on boot$SLOT ramdisk (enforcing) ==="
-ui_print "=== Verify: dmesg | grep cgroup2_early ; ls -l /dev/ion /dev/sprd_ion ==="
+ui_print "=== DONE: permissive TEST (cgroup2 + ion + selinux=permissive) ==="
+ui_print "=== Verify: getenforce ; cat /proc/cmdline | tr ' ' '\\n' | grep selinux ==="
 ui_print " "
 
 ## End install
