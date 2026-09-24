@@ -1,12 +1,13 @@
 ### AnyKernel3 Ramdisk Mod Script
 ## osm0sis @ xda-developers
-## Seuj09: cgroup2 early-init via BOOT nested ramdisk (Max / bootanimation style)
+## Seuj09: cgroup2 early-init + ion chown on BOOT nested ramdisk (Max / bootanimation style)
 ## Same path as "Disable Bootanimation" zip: split_boot → unpack_ramdisk → patch → repack → flash_boot
 ## init_boot is EMPTY on this device — do not use it.
+## NO androidboot.selinux=permissive on bpf (enforcing). Use bpf-a17-selinux-test for permissive TEST.
 
 ### AnyKernel setup
 properties() { '
-kernel.string=AnyKernel3 cgroup2 early-init on BOOT ramdisk (Unisoc nested)
+kernel.string=AnyKernel3 cgroup2+ion on BOOT ramdisk (enforcing)
 do.devicecheck=0
 do.modules=0
 do.systemless=1
@@ -31,6 +32,7 @@ SRC=$AKHOME/cgroup2
 
 ui_print "- slot=$SLOT"
 ui_print "- Max/bootanim style: split_boot + unpack_ramdisk on boot (not init_boot)"
+ui_print "- cgroup2 early-init + ion chown/chmod (enforcing — no selinux=permissive)"
 
 # Zip must not pre-populate ramdisk/ — unpack_ramdisk extracts boot's
 # lz4_legacy cpio there. Inject sources live in cgroup2/.
@@ -116,9 +118,12 @@ done
 if [ ! -f "$RD/init.cgroup2_early.rc" ] && [ ! -f "$RD/system/etc/ramdisk/init.cgroup2_early.rc" ]; then
   abort "inject files missing after copy"
 fi
-ui_print "- inject files present in boot ramdisk"
+if ! grep -q "chown system graphics /dev/ion" "$SRC/init.cgroup2_early.rc"; then
+  abort "ion chown missing from inject rc"
+fi
+ui_print "- inject files present in boot ramdisk (cgroup2 + ion)"
 
-# Keep ba98de94 cmdline hygiene on boot header
+# Keep ba98de94 cmdline hygiene on boot header — NO androidboot.selinux=permissive
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
 patch_cmdline "cgroup_no_v1" "cgroup_no_v1=cpu,cpuset,blkio,io,memory"
 
@@ -127,8 +132,8 @@ repack_ramdisk
 flash_boot
 
 ui_print " "
-ui_print "=== DONE: cgroup2 early-init on boot$SLOT ramdisk (bootanim path) ==="
-ui_print "=== Verify: dmesg | grep cgroup2_early ; ls /sys/fs/cgroup/system ==="
+ui_print "=== DONE: cgroup2+ion early-init on boot$SLOT ramdisk (enforcing) ==="
+ui_print "=== Verify: dmesg | grep cgroup2_early ; ls -l /dev/ion /dev/sprd_ion ==="
 ui_print " "
 
 ## End install

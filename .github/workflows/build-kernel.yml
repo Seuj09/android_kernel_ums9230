@@ -3,7 +3,7 @@ name: Build Kernel
 on:
   workflow_dispatch:
   push:
-    branches: [ master, sukisu, ksu-next, bpf ]
+    branches: [ master, sukisu, ksu-next, bpf, bpf-a17-selinux-test ]
 
 jobs:
   build:
@@ -33,9 +33,32 @@ jobs:
         run: |
           xz -9e -k -c out/arch/arm64/boot/Image > out/arch/arm64/boot/Image.xz
 
+      - name: Pack AnyKernel3 cgroup2+ion zip
+        run: |
+          SHORT=$(git rev-parse --short HEAD)
+          REF="${GITHUB_REF_NAME:-unknown}"
+          # Enforcing on bpf; permissive TEST branch gets a distinct artifact name.
+          if [ "$REF" = "bpf-a17-selinux-test" ]; then
+            OUT="AnyKernel3-ums9230-${SHORT}-cgroup2-selinux-permissive-TEST.zip"
+          else
+            OUT="AnyKernel3-ums9230-${SHORT}-cgroup2-ion-enforcing-candidate.zip"
+          fi
+          ./packaging/anykernel-cgroup/pack.sh out/arch/arm64/boot/Image \
+            "packaging/anykernel-cgroup/${OUT}"
+          ls -la "packaging/anykernel-cgroup/${OUT}"
+          sha256sum "packaging/anykernel-cgroup/${OUT}" out/arch/arm64/boot/Image
+          echo "AK3_ZIP_NAME=${OUT}" >> "$GITHUB_ENV"
+
       - name: Upload build output
         uses: actions/upload-artifact@v4
         with:
           name: kernel-Image-${{ github.sha }}
           path: out/arch/arm64/boot/Image.xz
           if-no-files-found: warn
+
+      - name: Upload AnyKernel3 zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-${{ github.ref_name }}-${{ github.sha }}
+          path: packaging/anykernel-cgroup/AnyKernel3-ums9230-*.zip
+          if-no-files-found: error

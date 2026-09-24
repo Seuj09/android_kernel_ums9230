@@ -1,6 +1,8 @@
 # BOOT ramdisk cgroup2 early-init for A17 GSI (apps/ + system/ for libprocessgroup).
+# Plus ION node ownership belt-and-braces for graphics allocator / SurfaceFlinger.
 # Builtins are SoT. Every step logs to /dev/kmsg with prefix cgroup2_early:
 # Shell fallback runs once on `on init` (when /system/bin/sh exists).
+# NOTE: init .rc cannot load sepolicy; ion chown is DAC belt-and-braces only.
 
 on early-init
     write /dev/kmsg "cgroup2_early: begin\n"
@@ -35,7 +37,24 @@ on early-init
     write /sys/fs/cgroup/system/cgroup.subtree_control +memory
     write /sys/fs/cgroup/system/cgroup.subtree_control +pids
     write /dev/kmsg "cgroup2_early: system subtree_control done\n"
+    # ION nodes may not exist yet at early-init — harmless if missing
+    chown system graphics /dev/ion
+    chmod 0666 /dev/ion
+    chown system graphics /dev/sprd_ion
+    chmod 0666 /dev/sprd_ion
+    write /dev/kmsg "cgroup2_early: early-init ion chown attempted\n"
     write /dev/kmsg "cgroup2_early: early-init complete\n"
+
+# When ueventd creates the nodes
+on device-added-/dev/ion
+    chown system graphics /dev/ion
+    chmod 0666 /dev/ion
+    write /dev/kmsg "cgroup2_early: device-added /dev/ion chown\n"
+
+on device-added-/dev/sprd_ion
+    chown system graphics /dev/sprd_ion
+    chmod 0666 /dev/sprd_ion
+    write /dev/kmsg "cgroup2_early: device-added /dev/sprd_ion chown\n"
 
 # Re-assert before zygote — recovers if early-init raced or was skipped
 on init
@@ -59,5 +78,23 @@ on init
     write /sys/fs/cgroup/system/cgroup.subtree_control +io
     write /sys/fs/cgroup/system/cgroup.subtree_control +memory
     write /sys/fs/cgroup/system/cgroup.subtree_control +pids
+    chown system graphics /dev/ion
+    chmod 0666 /dev/ion
+    chown system graphics /dev/sprd_ion
+    chmod 0666 /dev/sprd_ion
     write /dev/kmsg "cgroup2_early: on-init builtins done\n"
     exec -- /system/bin/sh /cgroup2_early_fix.sh
+
+on post-fs-data
+    chown system graphics /dev/ion
+    chmod 0666 /dev/ion
+    chown system graphics /dev/sprd_ion
+    chmod 0666 /dev/sprd_ion
+    write /dev/kmsg "cgroup2_early: post-fs-data ion chown\n"
+
+on boot
+    chown system graphics /dev/ion
+    chmod 0666 /dev/ion
+    chown system graphics /dev/sprd_ion
+    chmod 0666 /dev/sprd_ion
+    write /dev/kmsg "cgroup2_early: on-boot ion chown\n"
