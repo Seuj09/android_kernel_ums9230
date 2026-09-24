@@ -43,8 +43,7 @@ jobs:
           else
             OUT="AnyKernel3-ums9230-${SHORT}-cgroup2-ion-enforcing-candidate.zip"
           fi
-          ./packaging/anykernel-cgroup/pack.sh out/arch/arm64/boot/Image \
-            "packaging/anykernel-cgroup/${OUT}"
+          ./packaging/anykernel-cgroup/pack.sh out/arch/arm64/boot/Image "${OUT}"
           ls -la "packaging/anykernel-cgroup/${OUT}"
           sha256sum "packaging/anykernel-cgroup/${OUT}" out/arch/arm64/boot/Image
           echo "AK3_ZIP_NAME=${OUT}" >> "$GITHUB_ENV"
