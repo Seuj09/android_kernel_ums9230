@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Pack AnyKernel3 zip with Image (or Image.xz).
 # Usage: ./pack.sh <Image|Image.xz> [output.zip]
+#   output.zip may be a bare filename (written under this dir), an absolute
+#   path, or a path relative to the repo root.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")" && pwd)
+REPO=$(cd "$ROOT/../.." && pwd)
 IMG_IN=${1:?Image or Image.xz}
 OUT_ZIP=${2:-}
 
@@ -18,15 +21,20 @@ else
   cp -f "$IMG_IN" "$ROOT/Image.tmp" && mv -f "$ROOT/Image.tmp" "$ROOT/Image"
 fi
 
-SHORT=$(git -C "$ROOT/../.." rev-parse --short HEAD 2>/dev/null || echo unknown)
+SHORT=$(git -C "$REPO" rev-parse --short HEAD 2>/dev/null || echo unknown)
 if [[ -z "$OUT_ZIP" ]]; then
   OUT_ZIP="$ROOT/AnyKernel3-ums9230-cgroup2-ion-${SHORT}.zip"
+elif [[ "$OUT_ZIP" == /* ]]; then
+  :
+elif [[ "$OUT_ZIP" == */* ]]; then
+  # path relative to repo root (CI passes packaging/anykernel-cgroup/foo.zip)
+  OUT_ZIP="$REPO/$OUT_ZIP"
+else
+  # bare filename → under packaging dir
+  OUT_ZIP="$ROOT/$OUT_ZIP"
 fi
-# Allow absolute or relative OUT_ZIP
-case "$OUT_ZIP" in
-  /*) ;;
-  *) OUT_ZIP="$ROOT/$OUT_ZIP" ;;
-esac
+
+mkdir -p "$(dirname "$OUT_ZIP")"
 
 python3 - <<PY
 import zipfile
