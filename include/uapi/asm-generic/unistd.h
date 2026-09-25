@@ -852,11 +852,15 @@ __SYSCALL(__NR_clone3, sys_clone3)
 #endif
 #define __NR_close_range 436
 __SYSCALL(__NR_close_range, sys_close_range)
+#define __NR_pidfd_getfd 438
+__SYSCALL(__NR_pidfd_getfd, sys_pidfd_getfd)
+#define __NR_faccessat2 439
+__SYSCALL(__NR_faccessat2, sys_faccessat2)
 #define __NR_process_madvise 440
 __SYSCALL(__NR_process_madvise, sys_process_madvise)
 #define __NR_epoll_pwait2 441
 __SC_COMP(__NR_epoll_pwait2, sys_epoll_pwait2, compat_sys_epoll_pwait2)
-/* 442-447 reserved for openat2/pidfd_getfd/faccessat2/mount_setattr/landlock/memfd_secret */
+/* 437 openat2, 442-447 mount_setattr/landlock/memfd_secret: not ported */
 #define __NR_process_mrelease 448
 __SYSCALL(__NR_process_mrelease, sys_process_mrelease)
 #define __NR_futex_waitv 449

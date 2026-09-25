@@ -42,6 +42,8 @@
 #include <linux/sched/signal.h>
 #include <linux/sched/task.h>
 #include <linux/file.h>
+#include <linux/fdtable.h>
+#include <linux/ptrace.h>
 #include <linux/idr.h>
 
 struct pid init_struct_pid = {
@@ -540,6 +542,87 @@ SYSCALL_DEFINE2(pidfd_open, pid_t, pid, unsigned int, flags)
 	fd = ret ?: pidfd_create(p);
 	put_pid(p);
 	return fd;
+}
+
+static struct file *fget_task(struct task_struct *task, unsigned int fd)
+{
+	struct file *file = NULL;
+
+	task_lock(task);
+	rcu_read_lock();
+	if (task->files) {
+		file = fcheck_files(task->files, fd);
+		if (file && !get_file_rcu(file))
+			file = NULL;
+	}
+	rcu_read_unlock();
+	task_unlock(task);
+	return file;
+}
+
+static struct file *__pidfd_fget(struct task_struct *task, int fd)
+{
+	struct file *file;
+	int ret;
+
+	ret = mutex_lock_killable(&task->signal->cred_guard_mutex);
+	if (ret)
+		return ERR_PTR(ret);
+
+	if (ptrace_may_access(task, PTRACE_MODE_ATTACH_REALCREDS))
+		file = fget_task(task, fd);
+	else
+		file = ERR_PTR(-EPERM);
+
+	mutex_unlock(&task->signal->cred_guard_mutex);
+	return file ?: ERR_PTR(-EBADF);
+}
+
+static int pidfd_getfd(struct pid *pid, int fd)
+{
+	struct task_struct *task;
+	struct file *file;
+	int new_fd;
+
+	task = get_pid_task(pid, PIDTYPE_PID);
+	if (!task)
+		return -ESRCH;
+
+	file = __pidfd_fget(task, fd);
+	put_task_struct(task);
+	if (IS_ERR(file))
+		return PTR_ERR(file);
+
+	new_fd = get_unused_fd_flags(O_CLOEXEC);
+	if (new_fd < 0) {
+		fput(file);
+		return new_fd;
+	}
+	fd_install(new_fd, file);
+	return new_fd;
+}
+
+SYSCALL_DEFINE3(pidfd_getfd, int, pidfd, int, fd, unsigned int, flags)
+{
+	struct pid *pid;
+	struct fd f;
+	int ret;
+
+	if (flags)
+		return -EINVAL;
+
+	f = fdget(pidfd);
+	if (!f.file)
+		return -EBADF;
+
+	pid = pidfd_pid(f.file);
+	if (IS_ERR(pid))
+		ret = PTR_ERR(pid);
+	else
+		ret = pidfd_getfd(pid, fd);
+
+	fdput(f);
+	return ret;
 }
 
 void __init pid_idr_init(void)

@@ -357,14 +357,22 @@ extern bool __ksu_is_allow_uid_for_current(uid_t uid);
 #endif
 #endif
 
-long do_faccessat(int dfd, const char __user *filename, int mode)
+long do_faccessat(int dfd, const char __user *filename, int mode, int flags)
 {
-	const struct cred *old_cred;
-	struct cred *override_cred;
+	const struct cred *old_cred = NULL;
+	struct cred *override_cred = NULL;
 	struct path path;
 	struct inode *inode;
 	int res;
 	unsigned int lookup_flags = LOOKUP_FOLLOW;
+
+	if (flags & ~(AT_EACCESS | AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH))
+		return -EINVAL;
+
+	if (flags & AT_SYMLINK_NOFOLLOW)
+		lookup_flags &= ~LOOKUP_FOLLOW;
+	if (flags & AT_EMPTY_PATH)
+		lookup_flags |= LOOKUP_EMPTY;
 
 #ifdef CONFIG_KSU
 #ifdef CONFIG_KSU_SUSFS
@@ -373,17 +381,21 @@ long do_faccessat(int dfd, const char __user *filename, int mode)
 	}
 
 	if (unlikely(__ksu_is_allow_uid_for_current(current_uid().val))) {
-		ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+		ksu_handle_faccessat(&dfd, &filename, &mode, &flags);
 	}
 
 orig_flow:
 #else
-	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+	ksu_handle_faccessat(&dfd, &filename, &mode, &flags);
 #endif
 #endif
 
 	if (mode & ~S_IRWXO)	/* where's F_OK, X_OK, W_OK, R_OK? */
 		return -EINVAL;
+
+	/* AT_EACCESS checks the effective ids. Otherwise use the real ids. */
+	if (flags & AT_EACCESS)
+		goto retry;
 
 	override_cred = prepare_creds();
 	if (!override_cred)
@@ -463,19 +475,27 @@ out_path_release:
 		goto retry;
 	}
 out:
-	revert_creds(old_cred);
-	put_cred(override_cred);
+	if (override_cred) {
+		revert_creds(old_cred);
+		put_cred(override_cred);
+	}
 	return res;
 }
 
 SYSCALL_DEFINE3(faccessat, int, dfd, const char __user *, filename, int, mode)
 {
-	return do_faccessat(dfd, filename, mode);
+	return do_faccessat(dfd, filename, mode, 0);
+}
+
+SYSCALL_DEFINE4(faccessat2, int, dfd, const char __user *, filename, int, mode,
+		int, flags)
+{
+	return do_faccessat(dfd, filename, mode, flags);
 }
 
 SYSCALL_DEFINE2(access, const char __user *, filename, int, mode)
 {
-	return do_faccessat(AT_FDCWD, filename, mode);
+	return do_faccessat(AT_FDCWD, filename, mode, 0);
 }
 
 int ksys_chdir(const char __user *filename)
