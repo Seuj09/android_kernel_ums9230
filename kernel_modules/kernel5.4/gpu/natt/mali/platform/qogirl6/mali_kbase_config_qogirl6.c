@@ -52,12 +52,28 @@
 #define UP_THRESHOLD        9/10
 #define FREQ_KHZ            1000
 
-#define T606_GPLL_FREQ      650000000
+/*
+ * T606/T612 GPLL ceiling. Stock is 650 MHz. 850 MHz is the top qogirl6
+ * dvfs-list entry and the rate the T619 path already programs on the
+ * same GPU block. The voltage stays the device-tree value for that
+ * entry; this does not write a new voltage.
+ * T606/T612 dies are lower-binned than T619. A chip that cannot hold
+ * 850 MHz can hang or show artifacts. Fall back to 750000000 or
+ * 650000000 if it does.
+ */
+#define T606_GPLL_FREQ      850000000
 #define T616_GPLL_FREQ      750000000
 //#define DEFAULT_GPLL_FREQ   800000000
 
 #define GPU_768M_FREQ       768000000
 #define GPU_850M_FREQ       850000000
+
+/*
+ * Minimum DVFS slot while gpu_boost_level is not 10.
+ * 0 = 384 MHz, 1 = 512 MHz, 2 = 614.4 MHz. The T606 shrink removes
+ * the 768 MHz slot only, so index 2 stays 614.4 MHz.
+ */
+#define GPU_DVFS_BOOST_MIN_INDEX	2
 
 struct gpu_qos_config {
 	u8 arqos;
@@ -991,7 +1007,7 @@ void kbase_platform_modify_target_freq(struct device *dev, unsigned long *target
 	case 0:
 	default:
 		freq_max = &gpu_dvfs_ctx.freq_list[gpu_dvfs_ctx.freq_list_len-1];
-		freq_min = &gpu_dvfs_ctx.freq_list[0];
+		freq_min = &gpu_dvfs_ctx.freq_list[GPU_DVFS_BOOST_MIN_INDEX];
 		break;
 	}
 
