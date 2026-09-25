@@ -26,9 +26,12 @@ Currently, these files are in /proc/sys/vm:
 
 - admin_reserve_kbytes
 - anon_min_kbytes
+- anon_min_ratio
 - block_dump
 - clean_low_kbytes
+- clean_low_ratio
 - clean_min_kbytes
+- clean_min_ratio
 - compact_memory
 - compaction_proactiveness
 ========================
@@ -83,6 +86,7 @@ compact_unevictable_allowed
 - user_reserve_kbytes
 - vfs_cache_pressure
 - watermark_boost_factor
+- workingset_protection
 - watermark_scale_factor
 - zone_reclaim_mode
 
@@ -132,6 +136,19 @@ swap and can lead to early OOM under memory pressure.
 
 The default value is defined by CONFIG_ANON_MIN_KBYTES.
 
+This knob does nothing unless vm.workingset_protection is 1. If
+vm.anon_min_ratio is non-zero, that percent of MemTotal replaces this
+floor.
+
+
+anon_min_ratio
+==============
+
+Percent of MemTotal (0-100) used as the hard anonymous-page floor when
+vm.workingset_protection=1. 0 means "use vm.anon_min_kbytes instead".
+
+The default value is defined by CONFIG_ANON_MIN_RATIO (0 on this tree).
+
 
 block_dump
 ==========
@@ -158,6 +175,19 @@ pages in memory.
 
 The default value is defined by CONFIG_CLEAN_LOW_KBYTES.
 
+This knob does nothing unless vm.workingset_protection is 1. If
+vm.clean_low_ratio is non-zero, that percent of MemTotal replaces this
+floor.
+
+
+clean_low_ratio
+===============
+
+Percent of MemTotal (0-100) used as the best-effort clean-file floor when
+vm.workingset_protection=1. 0 means "use vm.clean_low_kbytes instead".
+
+The default value is defined by CONFIG_CLEAN_LOW_RATIO (0 on this tree).
+
 
 clean_min_kbytes
 ================
@@ -176,6 +206,19 @@ the inability to reclaim the protected amount of clean file pages when other
 types of pages cannot be reclaimed.
 
 The default value is defined by CONFIG_CLEAN_MIN_KBYTES.
+
+This knob does nothing unless vm.workingset_protection is 1. If
+vm.clean_min_ratio is non-zero, that percent of MemTotal replaces this
+floor.
+
+
+clean_min_ratio
+===============
+
+Percent of MemTotal (0-100) used as the hard clean-file floor when
+vm.workingset_protection=1. 0 means "use vm.clean_min_kbytes instead".
+
+The default value is defined by CONFIG_CLEAN_MIN_RATIO (0 on this tree).
 
 
 compact_memory
@@ -934,13 +977,19 @@ Keep in mind that filesystem IO patterns under memory pressure tend to
 be more efficient than swap's random IO. An optimal value will require
 experimentation and will also be workload-dependent.
 
-This knob has no effect if the amount of clean file pages on the current
-node is below vm.clean_low_kbytes or vm.clean_min_kbytes. In this case,
+When vm.workingset_protection is 1, this knob has no effect if the amount
+of clean file pages on the current node is below the clean-file floor
+(vm.clean_low_kbytes / vm.clean_low_ratio, or the hard min). In this case,
 only anonymous pages can be reclaimed.
 
-If the number of anonymous pages on the current node is below
-vm.anon_min_kbytes, then only file pages can be reclaimed with
-any vm.swappiness value.
+If vm.workingset_protection is 1 and the number of anonymous pages on the
+current node is below the anon floor (vm.anon_min_kbytes or
+vm.anon_min_ratio), then only file pages can be reclaimed with any
+vm.swappiness value.
+
+With Multi-Gen LRU enabled, the same floors bias which generation type is
+scanned. The master switch still defaults to off, so neither LRU mode
+protects anything until userspace sets vm.workingset_protection=1.
 
 The default value is 60.
 
@@ -952,6 +1001,23 @@ be 133 (x + 2x = 200, 2x = 133.33).
 
 At 0, the kernel will not initiate swap until the amount of free and
 file-backed pages is less than the high watermark in a zone.
+
+
+workingset_protection
+=====================
+
+Master switch for le9 / le9uo working-set protection.
+
+- 0 (default): the anon and clean-file floors are ignored. Reclaim matches
+  the kernel without le9.
+- 1: honor vm.anon_min_kbytes, vm.clean_low_kbytes and vm.clean_min_kbytes.
+  A non-zero vm.*_ratio replaces the matching kbyte floor with that percent
+  of MemTotal.
+
+On this tree the kbyte floors are built in (192 MiB anon hard, 384 MiB
+clean-file soft, 192 MiB clean-file hard) but they stay dormant until this
+switch is turned on. MGLRU does not disable the switch; both reclaim paths
+read it.
 
 
 unprivileged_userfaultfd
