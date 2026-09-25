@@ -7229,6 +7229,7 @@ int kswapd_run(int nid)
 		return ret;
 	}
 #ifdef CONFIG_KCOMPRESSD
+	spin_lock_init(&pgdat->kcompress_lock);
 	pgdat->kcompress_fifo = kmalloc(sizeof(struct kfifo),
 					GFP_KERNEL);
 	if (!pgdat->kcompress_fifo) {
