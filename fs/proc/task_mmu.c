@@ -365,7 +365,7 @@ static void show_vma_header_prefix(struct seq_file *m,
 }
 
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-extern void susfs_sus_ino_for_show_map_vma(unsigned long ino, dev_t *out_dev, unsigned long *out_ino);
+extern void susfs_sus_kstat_spoof_show_map_vma(struct inode *inode, dev_t *out_dev, unsigned long *out_ino);
 #endif
 
 static void show_vma_header_prefix_fake(struct seq_file *m,
@@ -401,7 +401,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
-		if (unlikely(inode->i_mapping->flags & BIT_SUS_MAPS) && susfs_is_current_proc_umounted()) {
+		if (SUSFS_IS_INODE_SUS_MAP(inode)) {
 			seq_setwidth(m, 25 + sizeof(void *) * 6 - 1);
 			seq_put_hex_ll(m, NULL, vma->vm_start, 8);
 			seq_put_hex_ll(m, "-", vma->vm_end, 8);
@@ -418,16 +418,10 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma)
 			goto done;
 		}
 #endif
-#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-		if (unlikely(inode->i_mapping->flags & BIT_SUS_KSTAT)) {
-			susfs_sus_ino_for_show_map_vma(inode->i_ino, &dev, &ino);
-			goto bypass_orig_flow;
-		}
-#endif
 		dev = inode->i_sb->s_dev;
 		ino = inode->i_ino;
 #ifdef CONFIG_KSU_SUSFS_SUS_KSTAT
-bypass_orig_flow:
+		susfs_sus_kstat_spoof_show_map_vma(inode, &dev, &ino);
 #endif
 		pgoff = ((loff_t)vma->vm_pgoff) << PAGE_SHIFT;
 		dentry = file->f_path.dentry;
@@ -1095,8 +1089,7 @@ static int show_smap(struct seq_file *m, void *v)
 
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 	if (vma->vm_file &&
-		unlikely(file_inode(vma->vm_file)->i_mapping->flags & BIT_SUS_MAPS) &&
-		susfs_is_current_proc_umounted())
+		SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
 	{
 		show_map_vma(m, vma);
 		SEQ_PUT_DEC("Size:           ", vma->vm_end - vma->vm_start);
@@ -1190,8 +1183,7 @@ static int show_smaps_rollup(struct seq_file *m, void *v)
 	for (vma = priv->mm->mmap; vma;) {
 #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 		if (vma->vm_file &&
-			unlikely(file_inode(vma->vm_file)->i_mapping->flags & BIT_SUS_MAPS) &&
-			susfs_is_current_proc_umounted())
+			SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
 		{
 			memset(&mss, 0, sizeof(mss));
 			goto bypass_orig_flow;
@@ -1993,7 +1985,7 @@ static ssize_t pagemap_read(struct file *file, char __user *buf,
 		vma = find_vma(mm, start_vaddr);
 		if (vma && vma->vm_file) {
 			struct inode *inode = file_inode(vma->vm_file);
-			if (unlikely(inode->i_mapping->flags & BIT_SUS_MAPS) && susfs_is_current_proc_umounted()) {
+			if (SUSFS_IS_INODE_SUS_MAP(inode)) {
 				pm.buffer->pme = 0;
 			}
 		}

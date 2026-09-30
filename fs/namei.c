@@ -54,12 +54,11 @@
 #include <trace/events/namei.h>
 
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-extern bool susfs_is_sus_android_data_d_name_found(const char *d_name);
-extern bool susfs_is_sus_sdcard_d_name_found(const char *d_name);
 extern bool susfs_is_inode_sus_path(struct inode *inode);
-extern bool susfs_is_base_dentry_android_data_dir(struct dentry* base);
-extern bool susfs_is_base_dentry_sdcard_dir(struct dentry* base);
 extern const struct qstr susfs_fake_qstr_name;
+#endif
+#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
+extern struct filename *susfs_open_redirect_spoof_do_sys_openat(struct inode *inode);
 #endif
 
 #ifdef CONFIG_HYMOFS
@@ -1671,21 +1670,6 @@ static struct dentry *__lookup_hash(const struct qstr *name,
 	struct inode *dir = base->d_inode;
 
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (base && base->d_inode && !found_sus_path) {
-		if (susfs_is_base_dentry_android_data_dir(base) &&
-			susfs_is_sus_android_data_d_name_found(name->name))
-		{
-			dentry = lookup_dcache(&susfs_fake_qstr_name, base, flags);
-			found_sus_path = true;
-			goto retry;
-		} else if (susfs_is_base_dentry_sdcard_dir(base) &&
-				   susfs_is_sus_sdcard_d_name_found(name->name))
-		{
-			dentry = lookup_dcache(&susfs_fake_qstr_name, base, flags);
-			found_sus_path = true;
-			goto retry;
-		}
-	}
 	dentry = lookup_dcache(name, base, flags);
 retry:
 #endif
@@ -1752,20 +1736,6 @@ static int lookup_fast(struct nameidata *nd,
 		bool negative;
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 		unsigned backup_next_seq;
-
-		if (is_nd_state_lookup_last_and_open_last && parent->d_inode) {
-			if (susfs_is_base_dentry_android_data_dir(parent) &&
-				susfs_is_sus_android_data_d_name_found(nd->last.name))
-			{
-				dentry = __d_lookup_rcu(parent, &susfs_fake_qstr_name, &seq);
-				goto skip_orig_flow1;
-			} else if (susfs_is_base_dentry_sdcard_dir(parent) &&
-					   susfs_is_sus_sdcard_d_name_found(nd->last.name))
-			{
-				dentry = __d_lookup_rcu(parent, &susfs_fake_qstr_name, &seq);
-				goto skip_orig_flow1;
-			}
-		}
 #endif
 		dentry = __d_lookup_rcu(parent, &nd->last, &seq);
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
@@ -1775,7 +1745,6 @@ static int lookup_fast(struct nameidata *nd,
 				dentry = __d_lookup_rcu(parent, &susfs_fake_qstr_name, &backup_next_seq);
 			}
 		}
-skip_orig_flow1:
 #endif
 		if (unlikely(!dentry)) {
 			if (unlazy_walk(nd))
@@ -1822,21 +1791,6 @@ skip_orig_flow1:
 			/* we'd been told to redo it in non-rcu mode */
 			status = d_revalidate(dentry, nd->flags);
 	} else {
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-		if (is_nd_state_lookup_last_and_open_last && parent->d_inode) {
-			if (susfs_is_base_dentry_android_data_dir(parent) &&
-				susfs_is_sus_android_data_d_name_found(nd->last.name))
-			{
-				dentry = __d_lookup(parent, &susfs_fake_qstr_name);
-				goto skip_orig_flow2;
-			} else if (susfs_is_base_dentry_sdcard_dir(parent) &&
-					   susfs_is_sus_sdcard_d_name_found(nd->last.name))
-			{
-				dentry = __d_lookup(parent, &susfs_fake_qstr_name);
-				goto skip_orig_flow2;
-			}
-		}
-#endif
 		dentry = __d_lookup(parent, &nd->last);
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 		if (is_nd_state_lookup_last_and_open_last && dentry && !IS_ERR(dentry) && dentry->d_inode) {
@@ -1845,7 +1799,6 @@ skip_orig_flow1:
 				dentry = __d_lookup(parent, &susfs_fake_qstr_name);
 			}
 		}
-skip_orig_flow2:
 #endif
 		if (unlikely(!dentry))
 			return 0;
@@ -1892,21 +1845,6 @@ again:
 	if (found_sus_path) {
 		dentry = d_alloc_parallel(dir, &susfs_fake_qstr_name, &sus_wq);
 		goto retry;
-	}
-	if (is_nd_flags_lookup_last && !found_sus_path) {
-		if (susfs_is_base_dentry_android_data_dir(dir) &&
-			susfs_is_sus_android_data_d_name_found(name->name))
-		{
-			dentry = d_alloc_parallel(dir, &susfs_fake_qstr_name, &sus_wq);
-			found_sus_path = true;
-			goto retry;
-		} else if (susfs_is_base_dentry_sdcard_dir(dir) &&
-				   susfs_is_sus_sdcard_d_name_found(name->name))
-		{
-			dentry = d_alloc_parallel(dir, &susfs_fake_qstr_name, &sus_wq);
-			found_sus_path = true;
-			goto retry;
-		}
 	}
 #endif
 	dentry = d_alloc_parallel(dir, name, &wq);
@@ -2396,23 +2334,6 @@ static int link_path_walk(const char *name, struct nameidata *nd)
 				hash_len = this.hash_len;
 				name = this.name;
 			}
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-			if (nd->state & ND_STATE_LAST_SDCARD_SUS_PATH) {
-				// return -ENOENT here since it is walking the sub path of sus sdcard path
-				return -ENOENT;
-			}
-			if (parent->d_inode) {
-				if (susfs_is_base_dentry_android_data_dir(parent) &&
-					susfs_is_sus_android_data_d_name_found(name))
-				{
-					nd->state |= ND_STATE_LAST_SDCARD_SUS_PATH;
-				} else if (susfs_is_base_dentry_sdcard_dir(parent) &&
-						   susfs_is_sus_sdcard_d_name_found(name))
-				{
-					nd->state |= ND_STATE_LAST_SDCARD_SUS_PATH;
-				}
-			}
-#endif
 		}
 
 		nd->last.hash_len = hash_len;
@@ -3472,23 +3393,6 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 		return -ENOENT;
 
 	file->f_mode &= ~FMODE_CREATED;
-#ifdef CONFIG_KSU_SUSFS_SUS_PATH
-	if (is_nd_state_open_last) {
-		if (susfs_is_base_dentry_android_data_dir(dir) &&
-			susfs_is_sus_android_data_d_name_found(nd->last.name))
-		{
-			dentry = d_lookup(dir, &susfs_fake_qstr_name);
-			found_sus_path = true;
-			goto skip_orig_flow1;
-		} else if (susfs_is_base_dentry_sdcard_dir(dir) &&
-				   susfs_is_sus_sdcard_d_name_found(nd->last.name))
-		{
-			dentry = d_lookup(dir, &susfs_fake_qstr_name);
-			found_sus_path = true;
-			goto skip_orig_flow1;
-		}
-	}
-#endif
 	dentry = d_lookup(dir, &nd->last);
 #ifdef CONFIG_KSU_SUSFS_SUS_PATH
 	if (is_nd_state_open_last && dentry && !IS_ERR(dentry) && dentry->d_inode) {
@@ -3498,7 +3402,6 @@ static int lookup_open(struct nameidata *nd, struct path *path,
 			found_sus_path = true;
 		}
 	}
-skip_orig_flow1:
 #endif
 	for (;;) {
 		if (!dentry) {
@@ -3928,11 +3831,6 @@ static struct file *path_openat(struct nameidata *nd,
 	return ERR_PTR(error);
 }
 
-#ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-extern struct filename* susfs_get_redirected_path(unsigned long ino);
-#endif
-
-
 struct file *do_filp_open(int dfd, struct filename *pathname,
 		const struct open_flags *op)
 {
@@ -3950,12 +3848,11 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
 	if (unlikely(filp == ERR_PTR(-ESTALE)))
 		filp = path_openat(&nd, op, flags | LOOKUP_REVAL);
 #ifdef CONFIG_KSU_SUSFS_OPEN_REDIRECT
-	if (!IS_ERR(filp) && unlikely(filp->f_inode->i_mapping->flags & BIT_OPEN_REDIRECT) && current_uid().val < 2000) {
-		fake_pathname = susfs_get_redirected_path(filp->f_inode->i_ino);
+	if (!IS_ERR(filp) && SUSFS_IS_INODE_OPEN_REDIRECT_WITHOUT_UID_CHECK(filp->f_inode)) {
+		fake_pathname = susfs_open_redirect_spoof_do_sys_openat(filp->f_inode);
 		if (!IS_ERR(fake_pathname)) {
 			restore_nameidata();
 			filp_close(filp, NULL);
-			// no need to do `putname(pathname);` here as it will be done by calling process
 			set_nameidata(&nd, dfd, fake_pathname);
 			filp = path_openat(&nd, op, flags | LOOKUP_RCU);
 			if (unlikely(filp == ERR_PTR(-ECHILD)))
