@@ -73,4 +73,40 @@ if [ -d "$CG/apps" ] && [ -d "$CG/system" ]; then
 else
   log "FAILED apps/system missing after setup"
 fi
+
+# AVC diagnostics. This defconfig used to ship CONFIG_AUDIT=n, which compiles
+# out the entire SELinux denial path (security/selinux/avc.c wraps
+# avc_xperms_audit -> slow_avc_audit in #ifdef CONFIG_AUDIT), so kernel-side
+# denials could never be emitted at all — which is why the A17 ion EACCES
+# showed no avc line anywhere. CONFIG_AUDIT=y restores it: with no auditd on
+# Android, records go out via kauditd_printk_skb()'s pr_notice(), i.e. dmesg.
+# Mirror the ion/SELinux subset into logcat so a logo-stuck boot is readable
+# over adb. Uses dmesg(2), never /proc/kmsg — a /proc/kmsg reader steals
+# records from logd's kernel buffer. Best effort, never fails boot.
+if [ -x /system/bin/dmesg ] || command -v dmesg >/dev/null 2>&1; then
+  ( _d=$(command -v dmesg 2>/dev/null || echo /system/bin/dmesg)
+    "$_d" 2>/dev/null | grep -m 300 -E 'avc: *denied|ion_open|obtain ion|selinux|SELinux' \
+      | while IFS= read -r _l; do echo "ionfix: $_l"; done ) &
+fi
+
+# ION fallback: vendor ueventd.rc often creates /dev/ion AFTER the .rc
+# early-init chown (0660 or root-only), overwriting it. The .rc
+# device-added trigger should catch it, but if it misses, allocator@4.0
+# dies with "ion_open failed Permission denied" -> SF RenderEngine abort
+# loop. So wait for the node here (runs on `on init`, after coldboot)
+# and force 0666. Best-effort, never fails boot.
+for _ion in /dev/ion /dev/sprd_ion; do
+  _t=0
+  while [ ! -e "$_ion" ] && [ "$_t" -lt 50 ]; do
+    sleep 0.1 2>/dev/null || sleep 1
+    _t=$((_t + 1))
+  done
+  if [ -e "$_ion" ]; then
+    chown system:graphics "$_ion" 2>/dev/null || chown 1000:1003 "$_ion" 2>/dev/null || true
+    chmod 0666 "$_ion" 2>/dev/null || true
+    log "ion $(ls -l "$_ion" 2>/dev/null)"
+  else
+    log "ion $_ion missing after wait"
+  fi
+done
 exit 0

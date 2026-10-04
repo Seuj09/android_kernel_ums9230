@@ -115,8 +115,20 @@ ui_print "- inject files present in boot ramdisk (cgroup2 + ion)"
 # ba98de94 cmdline hygiene + SELinux permissive TEST
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
 patch_cmdline "cgroup_no_v1" "cgroup_no_v1=cpu,cpuset,blkio,io,memory"
-patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive"
-ui_print "- patched BOOT header cmdline: androidboot.selinux=permissive"
+
+# SELinux permissive TEST — two independent knobs, because they are enforced
+# by different code:
+#  - enforcing=0        kernel side, security/selinux/hooks.c enforcing_setup()
+#                       (needs CONFIG_SECURITY_SELINUX_DEVELOP=y). Sets the
+#                       boot default. init's 2nd-stage SelinuxSetEnforcement()
+#                       may still flip it back on a user build.
+#  - androidboot.selinux  userspace, system/core/init/selinux.cpp
+#                       StatusFromProperty(); a no-op unless init was built
+#                       with ALLOW_PERMISSIVE_SELINUX=1 (userdebug/eng).
+# Patch both so the test does not depend on the GSI's build variant.
+  patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive"
+  patch_cmdline "enforcing" "enforcing=0"
+ui_print "- patched BOOT header cmdline: enforcing=0 + androidboot.selinux=permissive"
 
 # Header v4 bootconfig (if magiskboot unpacked a bootconfig blob into SPLITIMG)
 if [ -f "$SPLITIMG/bootconfig" ]; then
@@ -151,7 +163,8 @@ if [ -n "$VB" ]; then
   reset_ak
   split_boot
   patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive"
-  ui_print "- patched vendor_boot header cmdline: androidboot.selinux=permissive"
+  patch_cmdline "enforcing" "enforcing=0"
+  ui_print "- patched vendor_boot header cmdline: enforcing=0 + androidboot.selinux=permissive"
   if [ -f "$SPLITIMG/bootconfig" ]; then
     if ! grep -q "androidboot.selinux" "$SPLITIMG/bootconfig"; then
       echo "androidboot.selinux = \"permissive\"" >> "$SPLITIMG/bootconfig"
