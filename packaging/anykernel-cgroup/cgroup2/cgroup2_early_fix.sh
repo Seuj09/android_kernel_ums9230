@@ -137,7 +137,7 @@ fi
     if [ "$_n" = 2 ]; then
       log "DIAG enforce=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
       log "DIAG ion $(ion_stat)"
-      log "DIAG loadpolicy=$(cat /sys/fs/selinux/policyvers 2>/dev/null || echo '?')"
+      log "DIAG policyvers=$(cat /sys/fs/selinux/policyvers 2>/dev/null || echo '?')"
       log "DIAG build=$(getprop ro.build.type 2>/dev/null || echo ?):$(getprop ro.debuggable 2>/dev/null || echo ?)"
     fi
 
@@ -206,18 +206,20 @@ fi
 # private/init.te), but chcon to ion_device is NOT -- there is no
 # relabelto rule for ion_device in AOSP, so a relabel attempt would be
 # denied in enforcing mode. DAC only; the label is ueventd's job.
-for _ion in /dev/ion; do
-  _t=0
-  while [ ! -e "$_ion" ] && [ "$_t" -lt 20 ]; do
-    sleep 0.1 2>/dev/null || sleep 1
-    _t=$((_t + 1))
-  done
-  if [ -e "$_ion" ]; then
-    chown system:graphics "$_ion" 2>/dev/null || chown 1000:1003 "$_ion" 2>/dev/null || true
-    chmod 0666 "$_ion" 2>/dev/null || true
-    log "ion $(ls -l "$_ion" 2>/dev/null)"
-  else
-    log "ion $_ion missing after wait"
-  fi
+#
+# No loop: only /dev/ion exists in this tree. sprd_ion.c is present but
+# CONFIG_ION_SPRD is not set, so /dev/sprd_ion can never appear -- there is
+# nothing to wait on and nothing to chown.
+_t=0
+while [ ! -e /dev/ion ] && [ "$_t" -lt 20 ]; do
+  sleep 0.1 2>/dev/null || sleep 1
+  _t=$((_t + 1))
 done
+if [ -e /dev/ion ]; then
+  chown system:graphics /dev/ion 2>/dev/null || chown 1000:1003 /dev/ion 2>/dev/null || true
+  chmod 0666 /dev/ion 2>/dev/null || true
+  log "ion $(ls -l /dev/ion 2>/dev/null)"
+else
+  log "ion /dev/ion missing after wait"
+fi
 exit 0
