@@ -82,17 +82,32 @@ fi
 # nothing and we would lose the one datum that identifies the fix. So poll in
 # the background until the allocator appears (or we give up), then record:
 #
-#   - the allocator's actual scontext   (user hypothesis #1: stale vendor .rc
-#     seclabel put it in a domain that lacks the hal_graphics_allocator
-#     attribute, so the allow in hal_graphics_allocator.te never applies)
-#   - /dev/ion's actual label + mode    (#2 mislabelled node; #3 also visible
-#     as an unexpected tcontext)
+#   - the allocator's actual scontext   (stale vendor .rc seclabel puts it in
+#     a domain lacking hal_graphics_allocator -> the platform allow never
+#     applies; the leading hypothesis now that the rule itself is verified)
+#   - /dev/ion's actual label + mode    (tcontext; mislabel vs policy skew)
 #   - any avc: denied lines             (the authoritative answer)
-#   - live enforcement state
+#   - enforcement at failure + cmdline  (reconstructs the permissive-window
+#     story; see below)
+#   - /sys/fs/selinux/policyvers        (A13-vendor vs A17-platform skew)
 #
 # Everything goes through log() -> /dev/kmsg so it lands in the dmesg ring and
 # logd's kernel buffer, readable over adb while stuck at the logo:
 #     adb shell dmesg | grep cgroup2_early
+#
+# A note on what the enforce snapshots can and cannot say. `on init` fires in
+# SECOND-stage init; first stage ends with execv(init selinux_setup), i.e.
+# LoadSelinuxPolicy -> SelinuxSetEnforcement happens BEFORE any of these reads.
+# So neither read can observe the kernel-cmdline enforcing=0 window directly.
+# But the window is still reconstructible, because the input side is provable:
+# this kernel has CONFIG_SECURITY_SELINUX_DEVELOP=y, so enforcing=0 on the
+# cmdline provably started the kernel permissive. If /proc/cmdline still shows
+# enforcing=0 below while enforce-at-allocator reads 1, init re-asserted
+# enforcement before the HAL ran. The three-way read at the bottom is then:
+#   enforce=0 + fail            -> not SELinux, look at HIDL-vs-AIDL
+#   enforce=1 + fail + avc line -> SELinux, and the avc names the fix
+#   enforce=1 + fail, no avc    -> ambiguous (dontaudit exists); setenforce 0
+#                                  via adb root is the tiebreaker
 #
 # Bounded to ~60s so it cannot outlive a slow boot. Never blocks, never fails.
 (
@@ -126,6 +141,8 @@ fi
     [ -z "$_ps" ] && _ps=$(ps 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
     if [ -n "$_ps" ]; then
       log "DIAG allocator: $_ps"
+      log "DIAG enforce-at-allocator=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
+      log "DIAG cmdline=$(tr ' ' '\n' < /proc/cmdline 2>/dev/null | grep -E '^(androidboot\.selinux|enforcing)=' | tr '\n' ' ')"
       log "DIAG ion-now $(ls -lZ /dev/ion 2>/dev/null)"
       log "DIAG ion-open: $(dmesg 2>/dev/null | grep -E 'ion_open|obtain ion' | tail -3)"
       break
