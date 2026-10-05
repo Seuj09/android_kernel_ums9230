@@ -74,25 +74,69 @@ else
   log "FAILED apps/system missing after setup"
 fi
 
-# AVC diagnostics. This defconfig used to ship CONFIG_AUDIT=n, which compiles
-# out the entire SELinux denial path (security/selinux/avc.c wraps
-# avc_xperms_audit -> slow_avc_audit in #ifdef CONFIG_AUDIT), so kernel-side
-# denials could never be emitted at all — which is why the A17 ion EACCES
-# showed no avc line anywhere. CONFIG_AUDIT=y restores it: with no auditd on
-# Android, records go out via kauditd_printk_skb()'s pr_notice(), i.e. dmesg.
-# Mirror the ion/SELinux subset into logcat so a logo-stuck boot is readable
-# over adb. Uses dmesg(2), never /proc/kmsg — a /proc/kmsg reader steals
-# records from logd's kernel buffer. Best effort, never fails boot.
+# A17 graphics-allocator diagnostics.
 #
-# Must redirect explicitly: this is exec'd from init, so a bare echo lands on
-# whatever stdio init handed us (nowhere useful) instead of the kernel ring.
-if [ -x /system/bin/dmesg ] || command -v dmesg >/dev/null 2>&1; then
-  ( _d=$(command -v dmesg 2>/dev/null || echo /system/bin/dmesg)
-    "$_d" 2>/dev/null | grep -m 300 -E 'avc: *denied|ion_open|obtain ion|selinux|SELinux' \
-      | while IFS= read -r _l; do log "avc| $_l"; done ) &
-fi
+# Why this is a background monitor rather than a one-shot dump: this script is
+# exec'd from `on init`, which runs long before the HIDL allocator HAL is
+# registered with hwservicemanager. A one-shot `ps -Z` here would always find
+# nothing and we would lose the one datum that identifies the fix. So poll in
+# the background until the allocator appears (or we give up), then record:
+#
+#   - the allocator's actual scontext   (user hypothesis #1: stale vendor .rc
+#     seclabel put it in a domain that lacks the hal_graphics_allocator
+#     attribute, so the allow in hal_graphics_allocator.te never applies)
+#   - /dev/ion's actual label + mode    (#2 mislabelled node; #3 also visible
+#     as an unexpected tcontext)
+#   - any avc: denied lines             (the authoritative answer)
+#   - live enforcement state
+#
+# Everything goes through log() -> /dev/kmsg so it lands in the dmesg ring and
+# logd's kernel buffer, readable over adb while stuck at the logo:
+#     adb shell dmesg | grep cgroup2_early
+#
+# Bounded to ~60s so it cannot outlive a slow boot. Never blocks, never fails.
+(
+  _n=0
+  _seen_avc=""
+  while [ "$_n" -lt 120 ]; do
+    _n=$((_n + 1))
 
-# ION fallback: vendor ueventd.rc often creates /dev/ion AFTER the .rc
+    # Enforcement state: confirms enforcing=0 actually took effect, and
+    # whether init re-asserted enforcement after this point.
+    if [ "$_n" = 2 ]; then
+      log "DIAG enforce=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
+      log "DIAG ion $(ls -lZ /dev/ion 2>/dev/null || echo 'absent')"
+      log "DIAG loadpolicy=$(cat /sys/fs/selinux/policyvers 2>/dev/null || echo '?')"
+    fi
+
+    # Mirror AVC denials, de-duplicated so a repeated denial does not spam.
+    _av=$(dmesg 2>/dev/null | grep -E 'avc: *denied' | tail -5)
+    if [ -n "$_av" ] && [ "$_av" != "$_seen_avc" ]; then
+      _seen_avc=$_av
+      echo "$_av" | while IFS= read -r _l; do log "AVC| $_l"; done
+    fi
+
+    # The allocator HAL. Once present, its scontext is what we came for.
+    # Try several ps spellings: toybox's -Z support and flag combining have
+    # varied across Android versions, and a miss here costs us the whole
+    # diagnosis, so fall back rather than assume one form works.
+    _ps=$(ps -AZ 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
+    [ -z "$_ps" ] && _ps=$(ps -A -Z 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
+    [ -z "$_ps" ] && _ps=$(ps -e -Z 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
+    [ -z "$_ps" ] && _ps=$(ps 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
+    if [ -n "$_ps" ]; then
+      log "DIAG allocator: $_ps"
+      log "DIAG ion-now $(ls -lZ /dev/ion 2>/dev/null)"
+      log "DIAG ion-open: $(dmesg 2>/dev/null | grep -E 'ion_open|obtain ion' | tail -3)"
+      break
+    fi
+
+    sleep 0.5
+  done
+  [ "$_n" -ge 120 ] && log "DIAG allocator never appeared within 60s"
+) &
+
+# ION DAC fallback: vendor ueventd.rc often creates /dev/ion AFTER the .rc
 # early-init chown (0660 or root-only), overwriting it. The .rc
 # device-added trigger should catch it, but if it misses, allocator@4.0
 # dies with "ion_open failed Permission denied" -> SF RenderEngine abort
@@ -108,6 +152,11 @@ fi
 # delays every other on-init command. ueventd coldboot normally has the node
 # already; if it does not, the rc's on device-added trigger is the primary
 # path and this is only the fast-path fallback.
+#
+# Note: chown/chmod are permitted (init has setattr on dev_type via
+# private/init.te), but chcon to ion_device is NOT -- there is no
+# relabelto rule for ion_device in AOSP, so a relabel attempt would be
+# denied in enforcing mode. DAC only; the label is ueventd's job.
 for _ion in /dev/ion; do
   _t=0
   while [ ! -e "$_ion" ] && [ "$_t" -lt 20 ]; do
