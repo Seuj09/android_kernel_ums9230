@@ -83,10 +83,13 @@ fi
 # Mirror the ion/SELinux subset into logcat so a logo-stuck boot is readable
 # over adb. Uses dmesg(2), never /proc/kmsg — a /proc/kmsg reader steals
 # records from logd's kernel buffer. Best effort, never fails boot.
+#
+# Must redirect explicitly: this is exec'd from init, so a bare echo lands on
+# whatever stdio init handed us (nowhere useful) instead of the kernel ring.
 if [ -x /system/bin/dmesg ] || command -v dmesg >/dev/null 2>&1; then
   ( _d=$(command -v dmesg 2>/dev/null || echo /system/bin/dmesg)
     "$_d" 2>/dev/null | grep -m 300 -E 'avc: *denied|ion_open|obtain ion|selinux|SELinux' \
-      | while IFS= read -r _l; do echo "ionfix: $_l"; done ) &
+      | while IFS= read -r _l; do log "avc| $_l"; done ) &
 fi
 
 # ION fallback: vendor ueventd.rc often creates /dev/ion AFTER the .rc
@@ -95,9 +98,19 @@ fi
 # dies with "ion_open failed Permission denied" -> SF RenderEngine abort
 # loop. So wait for the node here (runs on `on init`, after coldboot)
 # and force 0666. Best-effort, never fails boot.
-for _ion in /dev/ion /dev/sprd_ion; do
+#
+# Only /dev/ion: sprd_ion.c exists but CONFIG_ION_SPRD is not set, so
+# /dev/sprd_ion can never appear. Waiting on it would burn the full timeout
+# on every boot for nothing.
+#
+# Bound is deliberately short (~2s max). This runs under init's `on init`
+# exec, which is synchronous and blocks the action thread, so a long stall
+# delays every other on-init command. ueventd coldboot normally has the node
+# already; if it does not, the rc's on device-added trigger is the primary
+# path and this is only the fast-path fallback.
+for _ion in /dev/ion; do
   _t=0
-  while [ ! -e "$_ion" ] && [ "$_t" -lt 50 ]; do
+  while [ ! -e "$_ion" ] && [ "$_t" -lt 20 ]; do
     sleep 0.1 2>/dev/null || sleep 1
     _t=$((_t + 1))
   done
