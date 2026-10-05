@@ -3,6 +3,19 @@
 CG=/sys/fs/cgroup
 log() { echo "cgroup2_early: $*" > /dev/kmsg 2>/dev/null || true; }
 
+# One-line "mode owner group context path" for /dev/ion (or its absence).
+# Explicitly flags when ls cannot show a label, so "no tcontext visible" can
+# never be mistaken for "node missing" -- that distinction is the whole
+# mislabel-vs-skew question. Newlines are collapsed so every datum matches
+# `dmesg | grep cgroup2_early`; a bare multi-line $(...) would leave
+# continuation lines prefix-less and invisible to that grep.
+ion_stat() {
+  if [ ! -e /dev/ion ]; then echo "absent"; return 0; fi
+  _s=$(ls -lZ /dev/ion 2>/dev/null || ls -l /dev/ion 2>/dev/null || echo "stat-failed")
+  case "$_s" in *"u:object_r:"*) ;; *) _s="$_s [NO -Z LABEL]";; esac
+  echo "$_s" | tr '\n' '|'
+}
+
 log "fix.sh start"
 
 mkdir -p "$CG" 2>/dev/null || true
@@ -118,17 +131,25 @@ fi
 
     # Enforcement state: confirms enforcing=0 actually took effect, and
     # whether init re-asserted enforcement after this point.
+    # Build variant decides whether the permissive cmdline can hold
+    # (ALLOW_PERMISSIVE_SELINUX is debuggable-only), so record it: without
+    # it, "enforce=1 later" cannot be told apart from "patch never applied".
     if [ "$_n" = 2 ]; then
       log "DIAG enforce=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
-      log "DIAG ion $(ls -lZ /dev/ion 2>/dev/null || echo 'absent')"
+      log "DIAG ion $(ion_stat)"
       log "DIAG loadpolicy=$(cat /sys/fs/selinux/policyvers 2>/dev/null || echo '?')"
+      log "DIAG build=$(getprop ro.build.type 2>/dev/null || echo ?):$(getprop ro.debuggable 2>/dev/null || echo ?)"
     fi
 
     # Mirror AVC denials, de-duplicated so a repeated denial does not spam.
-    _av=$(dmesg 2>/dev/null | grep -E 'avc: *denied' | tail -5)
-    if [ -n "$_av" ] && [ "$_av" != "$_seen_avc" ]; then
-      _seen_avc=$_av
-      echo "$_av" | while IFS= read -r _l; do log "AVC| $_l"; done
+    # Full dmesg dump is the most expensive thing in this loop, so scan every
+    # 4th pass (~2s); the ps poll below stays per-pass (cheap, /proc-based).
+    if [ $((_n % 4)) = 0 ]; then
+      _av=$(dmesg 2>/dev/null | grep -E 'avc: *denied' | tail -5)
+      if [ -n "$_av" ] && [ "$_av" != "$_seen_avc" ]; then
+        _seen_avc=$_av
+        echo "$_av" | while IFS= read -r _l; do log "AVC| $_l"; done
+      fi
     fi
 
     # The allocator HAL. Once present, its scontext is what we came for.
@@ -140,11 +161,22 @@ fi
     [ -z "$_ps" ] && _ps=$(ps -e -Z 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
     [ -z "$_ps" ] && _ps=$(ps 2>/dev/null | grep -E 'graphics\.alloc' | head -2)
     if [ -n "$_ps" ]; then
-      log "DIAG allocator: $_ps"
+      log "DIAG allocator: $(echo "$_ps" | tr '\n' '|')"
       log "DIAG enforce-at-allocator=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
       log "DIAG cmdline=$(tr ' ' '\n' < /proc/cmdline 2>/dev/null | grep -E '^(androidboot\.selinux|enforcing)=' | tr '\n' ' ')"
-      log "DIAG ion-now $(ls -lZ /dev/ion 2>/dev/null)"
-      log "DIAG ion-open: $(dmesg 2>/dev/null | grep -E 'ion_open|obtain ion' | tail -3)"
+      log "DIAG ion-now $(ion_stat)"
+      # What the LOADED POLICY says the label should be, vs what ion_stat
+      # showed it is. A mismatch here proves labeling divergence (stale
+      # vendor file_contexts vs platform), independent of any denial.
+      # Best effort: restorecon may simply not ship on the GSI.
+      if [ -x /system/bin/restorecon ]; then
+        _rc=$(/system/bin/restorecon -n -v /dev/ion 2>&1); _rce=$?
+        [ -z "$_rc" ] && _rc="(no output: label already matches policy, rc=$_rce)"
+        log "DIAG restorecon-n $(echo "$_rc" | tr '\n' '|')"
+      else
+        log "DIAG restorecon-n (no /system/bin/restorecon)"
+      fi
+      log "DIAG ion-open: $(dmesg 2>/dev/null | grep -E 'ion_open|obtain ion' | tail -3 | tr '\n' '|')"
       break
     fi
 
