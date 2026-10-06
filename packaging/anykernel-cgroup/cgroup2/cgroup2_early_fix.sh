@@ -3,15 +3,17 @@
 CG=/sys/fs/cgroup
 log() { echo "cgroup2_early: $*" > /dev/kmsg 2>/dev/null || true; }
 
-# One-line "mode owner group context path" for /dev/ion (or its absence).
-# Explicitly flags when ls cannot show a label, so "no tcontext visible" can
-# never be mistaken for "node missing" -- that distinction is the whole
-# mislabel-vs-skew question. Newlines are collapsed so every datum matches
-# `dmesg | grep cgroup2_early`; a bare multi-line $(...) would leave
-# continuation lines prefix-less and invisible to that grep.
+# One-line "mode owner group context path" for a device node (or its absence).
+# $1 = node path. Explicitly flags when ls cannot show a label, so "no
+# tcontext visible" can never be mistaken for "node missing" -- that
+# distinction is the whole mislabel-vs-skew question. Newlines are collapsed
+# so every datum matches `dmesg | grep cgroup2_early`; a bare multi-line
+# $(...) would leave continuation lines prefix-less and invisible to that
+# grep.
 ion_stat() {
-  if [ ! -e /dev/ion ]; then echo "absent"; return 0; fi
-  _s=$(ls -lZ /dev/ion 2>/dev/null || ls -l /dev/ion 2>/dev/null || echo "stat-failed")
+  _n=${1:-/dev/ion}
+  if [ ! -e "$_n" ]; then echo "absent"; return 0; fi
+  _s=$(ls -lZ "$_n" 2>/dev/null || ls -l "$_n" 2>/dev/null || echo "stat-failed")
   case "$_s" in *"u:object_r:"*) ;; *) _s="$_s [NO -Z LABEL]";; esac
   echo "$_s" | tr '\n' '|'
 }
@@ -136,14 +138,27 @@ fi
     # it, "enforce=1 later" cannot be told apart from "patch never applied".
     if [ "$_n" = 2 ]; then
       log "DIAG enforce=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
-      log "DIAG ion $(ion_stat)"
+      log "DIAG ion $(ion_stat /dev/ion)"
+      log "DIAG sprd-ion $(ion_stat /dev/sprd_ion)"
       log "DIAG policyvers=$(cat /sys/fs/selinux/policyvers 2>/dev/null || echo '?')"
       log "DIAG build=$(getprop ro.build.type 2>/dev/null || echo ?):$(getprop ro.debuggable 2>/dev/null || echo ?)"
       # The whole vendor+odm ueventd chain hangs off these two import lines
       # in the GSI-owned /system/etc/ueventd.rc. If they are absent, NO
       # vendor rule (ion or otherwise) is ever read, whatever paths exist.
+      # Resolving each target to present/MISSING closes the "does the chain
+      # actually reach a rule" half; the legacy-gate question (pre-S paths
+      # gated on first_api_level<33) is answered by whether the imports and
+      # their targets exist at all.
       if [ -f /system/etc/ueventd.rc ]; then
-        log "DIAG ueventd-imports=$(grep -E '^import ' /system/etc/ueventd.rc 2>/dev/null | tr '\n' '|' || echo 'none')"
+        _imp=$(grep -E '^import ' /system/etc/ueventd.rc 2>/dev/null | sed 's/^import //' | tr '\n' ' ')
+        log "DIAG ueventd-imports=$(echo "$_imp" | tr -s ' ' | tr ' ' '|')"
+        for _t in $_imp; do
+          if [ -e "$_t" ]; then
+            log "DIAG ueventd-target OK $_t"
+          else
+            log "DIAG ueventd-target MISSING $_t"
+          fi
+        done
       else
         log "DIAG ueventd-imports (/system/etc/ueventd.rc not yet readable)"
       fi
@@ -172,7 +187,8 @@ fi
       log "DIAG allocator: $(echo "$_ps" | tr '\n' '|')"
       log "DIAG enforce-at-allocator=$(cat /sys/fs/selinux/enforce 2>/dev/null || echo '?')"
       log "DIAG cmdline=$(tr ' ' '\n' < /proc/cmdline 2>/dev/null | grep -E '^(androidboot\.selinux|enforcing)=' | tr '\n' ' ')"
-      log "DIAG ion-now $(ion_stat)"
+      log "DIAG ion-now $(ion_stat /dev/ion)"
+      log "DIAG sprd-ion-now $(ion_stat /dev/sprd_ion)"
       # What the LOADED POLICY says the label should be, vs what ion_stat
       # showed it is. A mismatch here proves labeling divergence (stale
       # vendor file_contexts vs platform), independent of any denial.
@@ -193,16 +209,22 @@ fi
   [ "$_n" -ge 120 ] && log "DIAG allocator never appeared within 60s"
 ) &
 
-# ION DAC fallback: vendor ueventd.rc often creates /dev/ion AFTER the .rc
-# early-init chown (0660 or root-only), overwriting it. The .rc
-# device-added trigger should catch it, but if it misses, allocator@4.0
-# dies with "ion_open failed Permission denied" -> SF RenderEngine abort
-# loop. So wait for the node here (runs on `on init`, after coldboot)
-# and force 0666. Best-effort, never fails boot.
+# ION DAC fallback: vendor ueventd rules may never apply (legacy paths gated
+# on first_api_level<33; the GSI's own import chain may not reach them), in
+# which case ueventd creates the node 0600 root:root and allocator@4.0 dies
+# with "ion_open failed Permission denied" -> SF RenderEngine abort loop.
+# So wait for the node here (runs on `on init`, after coldboot) and force
+# ownership/mode. Best-effort, never fails boot.
 #
-# Only /dev/ion: sprd_ion.c exists but CONFIG_ION_SPRD is not set, so
-# /dev/sprd_ion can never appear. Waiting on it would burn the full timeout
-# on every boot for nothing.
+# Both ion nodes are handled: /dev/ion (in-tree core, always present) and
+# /dev/sprd_ion (external sprd-ion.ko when built and loaded; in-tree copy
+# is off). The wait below is /dev/ion only -- the .rc's on device-added
+# trigger is the event-driven path for both, with zero cost when absent.
+#
+# Mode is deliberately 0666, matching this vendor's stock behavior
+# (A13: 0666 system:graphics). 0660 would suffice if the HAL's uid is in
+# graphics, but stock parity wins for a bringup test: it removes DAC from
+# the suspect list entirely rather than narrowing it.
 #
 # Bound is deliberately short (~2s max). This runs under init's `on init`
 # exec, which is synchronous and blocks the action thread, so a long stall
@@ -214,10 +236,7 @@ fi
 # private/init.te), but chcon to ion_device is NOT -- there is no
 # relabelto rule for ion_device in AOSP, so a relabel attempt would be
 # denied in enforcing mode. DAC only; the label is ueventd's job.
-#
-# No loop: only /dev/ion exists in this tree. sprd_ion.c is present but
-# CONFIG_ION_SPRD is not set, so /dev/sprd_ion can never appear -- there is
-# nothing to wait on and nothing to chown.
+# (The 2s wait above is /dev/ion only; sprd_ion relies on the rc trigger.)
 _t=0
 while [ ! -e /dev/ion ] && [ "$_t" -lt 20 ]; do
   sleep 0.1 2>/dev/null || sleep 1
