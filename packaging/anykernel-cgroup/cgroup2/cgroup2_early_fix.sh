@@ -139,6 +139,14 @@ fi
       log "DIAG ion $(ion_stat)"
       log "DIAG policyvers=$(cat /sys/fs/selinux/policyvers 2>/dev/null || echo '?')"
       log "DIAG build=$(getprop ro.build.type 2>/dev/null || echo ?):$(getprop ro.debuggable 2>/dev/null || echo ?)"
+      # The whole vendor+odm ueventd chain hangs off these two import lines
+      # in the GSI-owned /system/etc/ueventd.rc. If they are absent, NO
+      # vendor rule (ion or otherwise) is ever read, whatever paths exist.
+      if [ -f /system/etc/ueventd.rc ]; then
+        log "DIAG ueventd-imports=$(grep -E '^import ' /system/etc/ueventd.rc 2>/dev/null | tr '\n' '|' || echo 'none')"
+      else
+        log "DIAG ueventd-imports (/system/etc/ueventd.rc not yet readable)"
+      fi
     fi
 
     # Mirror AVC denials, de-duplicated so a repeated denial does not spam.
