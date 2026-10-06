@@ -4,7 +4,47 @@
 # Shell fallback runs once on `on init` (when /system/bin/sh exists).
 # NOTE: init .rc cannot load sepolicy; ion chown is DAC belt-and-braces only.
 
+# --- netbpfload kernel-version override (Android 17 GSI) --------------------
+# A17 is sdk_full 37.0, so userspace's api_level_full is 3700 and netbpfload
+# (tethering APEX, bpf/loader/NetBpfLoad.cpp) trips:
+#     if (isAtLeast25Q4 && !isAtLeastKernelVersion(5, 10)) return 7;
+# isAtLeast25Q4 == (api_level_full >= 3610) -- true at 3700. This kernel is
+# 5.4.302, so the loader exits 7 and the service's `reboot_on_failure
+# bpfloader-failed` turns that into a bootloop at the logo.
+# (The 5.15 gate is isAtLeast26Q4 == (api_level_full >= 3710), i.e. 37.1 --
+#  a 37.0 GSI does not reach it.)
+#
+# The value is bounded on three sides:
+#   >= 5.10      the gate above; nothing lower passes.
+#   <  5.15      at >=5.15 netd.o's bind4/bind6 switch to the variant that
+#                returns BPF_ALLOW_IGNORING_CAP_NET_BIND (== 3). This kernel's
+#                __cgroup_bpf_run_filter_sock_addr ends in
+#                `return ret == 1 ? 0 : -EPERM;` and has no
+#                BPF_RET_BIND_NO_CAP_NET_BIND handling, so 3 would mean -EPERM
+#                on every unprivileged-port bind (netd:53, root/shell:555).
+#   <  6.1       at >=6.1 the mandatory CGROUP_SOCKOPT getsockopt/setsockopt
+#                programs compile in bpf_set_retval, which this kernel does
+#                not implement (no enum arm, no func_proto) -> load fails.
+# 5.10.239 is the LineageOS sm7325-common value: it matches a real LTS and
+# clears the loader's >=5.10.199 sub-version REQUIRE warning.
+#
+# This only does anything on a GSI whose netbpfload reads the property --
+# LineageOS/RestlessOS patch uncachedKernelVersion() in bpf/headers/include/
+# bpf/KernelUtils.h to prefer it over uname(). Stock AOSP does not (its
+# KernelUtils.h is uname()-only), so on a stock GSI this line is inert.
+#
+# No sepolicy entry is needed: an unlisted ro.* name resolves to
+# u:object_r:default_prop:s0 (init/property_service.cpp:1319 default), which is
+# declared system_internal_prop() -> property_type (public/property.te:279),
+# and private/init.te:713 already grants
+#     allow init property_type:property_service set;
+#
+# Set here (before the cgroup2 work) so it lands well before late-init's
+# `load-bpf-programs`. ro.* cannot be set twice, so this must be first.
+
 on early-init
+    setprop ro.bpf.kver_override 5.10.239
+    write /dev/kmsg "cgroup2_early: ro.bpf.kver_override=5.10.239 set\n"
     write /dev/kmsg "cgroup2_early: begin\n"
     mkdir /sys/fs/cgroup 0755 root root
     write /dev/kmsg "cgroup2_early: mkdir /sys/fs/cgroup done\n"

@@ -19,6 +19,10 @@ ion_stat() {
 }
 
 log "fix.sh start"
+# Prove the netbpfload override took (set in the .rc at early-init). A stock
+# AOSP GSI ignores this property entirely, so only the kernel-side value here
+# is evidence -- netbpfload's own logcat is the real verdict.
+log "kver_override=$(getprop ro.bpf.kver_override 2>/dev/null) uname=$(uname -r 2>/dev/null)"
 
 mkdir -p "$CG" 2>/dev/null || true
 log "mkdir -p $CG"

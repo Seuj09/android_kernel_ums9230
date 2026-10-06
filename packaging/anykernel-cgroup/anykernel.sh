@@ -205,7 +205,12 @@ fi
 if ! grep -q "chown system graphics /dev/ion" "$SRC/init.cgroup2_early.rc"; then
   abort "ion chown missing from inject rc"
 fi
-ui_print "- inject files present in boot ramdisk (cgroup2 + ion)"
+# netbpfload gate: without this property A17 (api 37.0) exits 7 on the 25Q4
+# kver>=5.10 gate and reboot_on_failure bootloops at the logo.
+if ! grep -q "setprop ro.bpf.kver_override" "$SRC/init.cgroup2_early.rc"; then
+  abort "netbpfload kver override missing from inject rc"
+fi
+ui_print "- inject files present in boot ramdisk (cgroup2 + ion + netbpfload kver)"
 
 # ba98de94 cmdline hygiene + SELinux permissive TEST
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
