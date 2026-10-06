@@ -236,12 +236,16 @@ fi
   [ "$_n" -ge 120 ] && log "DIAG allocator never appeared within 60s"
 ) &
 
-# ION DAC fallback: vendor ueventd rules may never apply (legacy paths gated
-# on first_api_level<33; the GSI's own import chain may not reach them), in
-# which case ueventd creates the node 0600 root:root and allocator@4.0 dies
-# with "ion_open failed Permission denied" -> SF RenderEngine abort loop.
-# So wait for the node here (runs on `on init`, after coldboot) and force
-# ownership/mode. Best-effort, never fails boot.
+# ION DAC fallback: re-applies the vendor ownership/mode as a safety net.
+# Verified on this vendor: the merged vendor ueventd.rc carries
+# "/dev/ion 0666 system graphics", all 26 ueventd files checked with no
+# override, so ueventd already creates the node 0666 -- these chowns are a
+# confirmed no-op on a normal boot, kept only for timing variants (node
+# appearing after our triggers) at zero cost when absent. DAC is ruled OUT
+# as the failure: with 0666 in place, open() cannot fail on mode/owner.
+# The live question is the LABEL (see monitor above): A17 plat has no
+# /dev/ion entry, so without a vendor or ODM file_contexts line the node
+# falls back to generic `device`, where every ion_device allow is inert.
 #
 # Both ion nodes are handled: /dev/ion (in-tree core, always present) and
 # /dev/sprd_ion (external sprd-ion.ko when built and loaded; in-tree copy
