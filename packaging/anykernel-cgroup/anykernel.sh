@@ -72,20 +72,49 @@ install_inject "$RD" || abort "ramdisk dir missing after unpack"
 [ -d "$ALT" ] && install_inject "$ALT"
 
 hook_import() {
-  local root=$1 f
+  local root=$1 f base src
   [ -d "$root" ] || return 0
+
+  # install_inject() runs first and copies init.cgroup2_early.rc into this
+  # tree, so the init*.rc glob below matches our OWN inject. That file does
+  # not contain the string "init.cgroup2_early.rc", so the old guard fell
+  # through to the append branch and wrote an import of itself into the file
+  # being imported.
+  #
+  # AOSP init has no import cycle detection: ImportParser::ParseSection only
+  # queues the path, and ImportParser::EndFile (called from Parser::ParseData
+  # at T_EOF) runs parser_->ParseConfig() on it. Re-parsing the file re-queues
+  # the same import, so a self-import recurses until the stack dies -- init
+  # never reaches its triggers. Never hook the inject, at either path.
   for f in "$root"/init.rc "$root"/init*.rc "$root"/system/etc/ramdisk/init.rc "$root"/system/etc/ramdisk/init*.rc; do
     [ -f "$f" ] || continue
+    base=${f##*/}
+    [ "$base" = "init.cgroup2_early.rc" ] && continue
+
+    # The import path is resolved by init at parse time, so it depends on
+    # where this .rc sits in the ramdisk we are patching. There is no
+    # resolve-relative-to-importing-file behaviour in init (ParseConfigFile
+    # passes the string straight to ReadFileToString), so it must be absolute
+    # and must match this file's own location.
+    case $f in
+      "$root"/system/etc/ramdisk/*) src=/system/etc/ramdisk/init.cgroup2_early.rc ;;
+      *)                            src=/init.cgroup2_early.rc ;;
+    esac
+
+    # A missing import is non-fatal (ParseConfig only logs "Unable to read
+    # config file"), but it is noise and it means the inject silently does
+    # nothing. Only emit an import for a file we actually shipped here.
+    [ -f "$root$src" ] || continue
+
+    grep -qF "import $src" "$f" && continue
+
     ui_print "- hook import in $(echo "$f" | sed "s|^$AKHOME/||")"
-    if ! grep -q "init.cgroup2_early.rc" "$f"; then
-      if grep -q "import /init.environ.rc" "$f"; then
-        sed -i '/import \/init.environ.rc/a import /init.cgroup2_early.rc' "$f"
-      elif grep -q "^import " "$f"; then
-        sed -i '0,/^import /s//import \/init.cgroup2_early.rc\n&/' "$f"
-      else
-        echo "import /init.cgroup2_early.rc" >> "$f"
-        echo "import /system/etc/ramdisk/init.cgroup2_early.rc" >> "$f"
-      fi
+    if grep -qF "import /init.environ.rc" "$f"; then
+      sed -i "\|^import /init\.environ\.rc\$|a import $src" "$f"
+    elif grep -q "^import " "$f"; then
+      sed -i "0,/^import /s||import $src\n&|" "$f"
+    else
+      echo "import $src" >> "$f"
     fi
   done
 }
