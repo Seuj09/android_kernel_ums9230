@@ -1,0 +1,55 @@
+; /dev/ion access for Android 17 platform policy.
+;
+; Delivered on the boot ramdisk and compiled into the policy by init at
+; first-stage `init selinux_setup` -- see install_ion_policy() in
+; anykernel.sh for the why and the caveats.
+;
+; The node on an A17 GSI boot:
+;   label   u:object_r:device:s0    (android17-release private/file_contexts
+;                                    dropped "/dev/ion u:object_r:ion_device:s0",
+;                                    so the catch-all at line 96 claims it)
+;   DAC     0666 system:graphics    (vendor ueventd.rc -- not the problem)
+;
+; AOSP grants no domain open/read/write on device:chr_file
+; (private/domain.te:765, "Rather force a relabel to a more specific type"),
+; so the allocator's open() fails EACCES, mali_gralloc cannot allocate, and
+; SurfaceFlinger aborts at the OEM logo. Rules written against ion_device are
+; inert while the label stays `device`, and init cannot relabel it
+; (private/init.te:150 grants init chr_file relabelto only for console,
+; null, ptmx, random, kmsg, dm, dm_user and loop_control_device).
+;
+; This slot works because init/selinux.cpp:326 treats
+; /odm/etc/selinux/odm_sepolicy.cil as optional and appends it to the secilc
+; command line, and that compile passes -N (--disable-neverallow), so an
+; additive allow against device:chr_file loads despite domain.te:765. The
+; kernel has no neverallow concept at all -- it binds only the platform build.
+;
+; Only symbols the platform policy itself declares are named, so the compile
+; cannot fail on an unknown identifier:
+;   hal_graphics_allocator  an attribute, public/attributes:
+;                           hal_attribute(graphics_allocator), expanded at
+;                           compile time into its members. The members are the
+;                           implementations the vendor policy adds with
+;                           hal_server_domain, so this follows whatever the
+;                           vendor names its allocator instead of guessing
+;                           (hal_graphics_allocator is NOT a type -- every
+;                           "hal_graphics_allocator" in AOSP's .te files is a
+;                           macro prefix producing _client/_server). An
+;                           expanded attribute with no members compiles to
+;                           nothing.
+;   surfaceflinger          a type, public/surfaceflinger.te
+;   device, ion_device      plat types, public/device.te
+;
+; hal_keymaster is deliberately NOT named: android17-release has no
+; hal_attribute(keymaster) and no such domain in public/, and naming an
+; undeclared symbol fails the compile, which is fatal (LOG(FATAL) "Unable to
+; open SELinux policy"), where a missing file is skipped silently. Add it only
+; after confirming the name in the device's own vendor policy.
+;
+; The ion_device pair is inert while the node is labelled `device`; it is here
+; so the file keeps working if a policy ever labels the node ion_device.
+
+(allow hal_graphics_allocator device (chr_file (getattr open read write ioctl map)))
+(allow surfaceflinger device (chr_file (getattr open read write ioctl map)))
+(allow hal_graphics_allocator ion_device (chr_file (getattr open read write ioctl map)))
+(allow surfaceflinger ion_device (chr_file (getattr open read write ioctl map)))

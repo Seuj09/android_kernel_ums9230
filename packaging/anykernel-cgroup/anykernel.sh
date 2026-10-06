@@ -30,6 +30,7 @@ PATCH_VBMETA_FLAG=auto
 
 SRC=$AKHOME/cgroup2
 [ -f "$SRC/init.cgroup2_early.rc" ] && [ -f "$SRC/cgroup2_early_fix.sh" ] || abort "missing cgroup2/ sources"
+[ -f "$SRC/odm_sepolicy.cil" ] || abort "missing cgroup2/odm_sepolicy.cil"
 
 ui_print "- slot=$SLOT"
 ui_print "- permissive TEST: cgroup2 + ion + androidboot.selinux=permissive"
@@ -70,6 +71,66 @@ install_inject() {
 
 install_inject "$RD" || abort "ramdisk dir missing after unpack"
 [ -d "$ALT" ] && install_inject "$ALT"
+
+# --- /dev/ion SELinux fix -------------------------------------------------
+# On an A17 GSI the node is labelled `device` (android17-release plat
+# file_contexts dropped its /dev/ion line, so the catch-all `/dev(/.*)? ->
+# device:s0` claims it) and AOSP grants no domain open/read/write on
+# device:chr_file (private/domain.te:765). The allocator's open() fails
+# EACCES, mali_gralloc cannot allocate, SurfaceFlinger aborts at the logo.
+#
+# Neither the rc/script above nor a KernelSU module can fix that: policy is
+# loaded by `exec init selinux_setup` (first_stage_init.cpp) BEFORE any rc
+# line runs, so a script is subject to the very policy it would need to
+# change, and init has no chr_file relabelto on ion_device
+# (private/init.te:150). It has to be a file the loader reads, and the one
+# such slot a ramdisk can populate is the optional odm CIL that
+# init/selinux.cpp:326 appends to the secilc command line -- a compile that
+# passes -N (--disable-neverallow), so an additive allow against
+# device:chr_file loads even though the platform build would reject it.
+install_ion_policy() {
+  local root=$1 sub dst
+  [ -d "$root" ] || return 1
+  # first_stage_ramdisk/ is the live root on a normal boot (first_stage_init
+  # SwitchRoot, force_normal_boot=1); the ramdisk root is the recovery tree.
+  # Write both -- exactly one is live, and an unreachable copy is inert.
+  for sub in "first_stage_ramdisk" ""; do
+    dst="$root${sub:+/$sub}/odm/etc/selinux"
+    mkdir -p "$dst" 2>/dev/null || continue
+    cp -f "$SRC/odm_sepolicy.cil" "$dst/odm_sepolicy.cil" || continue
+    chmod 644 "$dst/odm_sepolicy.cil"
+    ui_print "- ion policy -> ${dst#"$AKHOME"/}/odm_sepolicy.cil"
+  done
+  return 0
+}
+
+install_ion_policy "$RD"
+[ -d "$ALT" ] && install_ion_policy "$ALT"
+
+if [ -d "$RD/first_stage_ramdisk" ]; then
+  ui_print "- layout: first_stage_ramdisk/ is the normal-boot root"
+else
+  ui_print "- layout: ramdisk root is the live root (no first_stage_ramdisk/)"
+fi
+# Partitions are mounted by DoFirstStageMount() before the policy is read, so
+# a real odm partition would shadow the file. Say so instead of leaving a
+# silent no-op on the device.
+if ls /dev/block/by-name/ 2>/dev/null | grep -qi '^odm'; then
+  ui_print "- WARNING: odm partition present ($(ls /dev/block/by-name/ 2>/dev/null | grep -i '^odm' | tr '\n' ' '))"
+  ui_print "-          /odm is mounted over the ramdisk before init reads the"
+  ui_print "-          policy, so this fix may not apply. If it does not, the"
+  ui_print "-          rules have to go into the image's plat_sepolicy.cil."
+else
+  ui_print "- no odm partition: /odm comes from the ramdisk, odm CIL is live"
+fi
+
+# init skips a missing odm CIL silently, so a packaging mistake here would
+# leave the device booting exactly as broken as before, with no clue why.
+if [ ! -f "$RD/odm/etc/selinux/odm_sepolicy.cil" ] && \
+   [ ! -f "$RD/first_stage_ramdisk/odm/etc/selinux/odm_sepolicy.cil" ]; then
+  abort "ion policy not written into the ramdisk"
+fi
+ui_print "- verify after boot: no 'ion: open /dev/ion failed' in logcat;"
 
 hook_import() {
   local root=$1 f base src
