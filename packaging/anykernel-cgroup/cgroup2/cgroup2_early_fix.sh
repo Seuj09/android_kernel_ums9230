@@ -118,11 +118,38 @@ fi
 # this kernel has CONFIG_SECURITY_SELINUX_DEVELOP=y, so enforcing=0 on the
 # cmdline provably started the kernel permissive. If /proc/cmdline still shows
 # enforcing=0 below while enforce-at-allocator reads 1, init re-asserted
-# enforcement before the HAL ran. The three-way read at the bottom is then:
-#   enforce=0 + fail            -> not SELinux, look at HIDL-vs-AIDL
-#   enforce=1 + fail + avc line -> SELinux, and the avc names the fix
-#   enforce=1 + fail, no avc    -> ambiguous (dontaudit exists); setenforce 0
-#                                  via adb root is the tiebreaker
+# enforcement before the HAL ran.
+#
+# And one correction that matters more than the window: do NOT read
+# "EACCES with no avc line" as "permissive, therefore DAC". The Sep-20 boot
+# that produced the ion EACCES was enforcing (every avc line in it ends
+# permissive=0), so the permissive half of this package was simply not in
+# effect there. The DAC conclusion survives anyway, but for a different,
+# mode-independent reason, verified in this tree (fs/namei.c
+# inode_permission): sb -> do_inode_permission (DAC: uid/gid/mode) ->
+# devcgroup -> security_inode_permission (SELinux) LAST. A DAC denial
+# returns EACCES without SELinux ever being consulted -- no avc line, in
+# either mode. (devcgroup sits between them and is silent too, but it
+# defaults allow-all on Android, so it stays last on the suspect list.)
+# So:
+#   restrictive mode/owner + EACCES + no avc  -> DAC, whatever enforce says
+#   permissive mode + EACCES                  -> also DAC (permissive cannot
+#                                                deny), but only if enforce
+#                                                actually reads 0 -- check it,
+#                                                don't assume the patch held
+#   enforcing + EACCES + avc line             -> SELinux, and the avc names
+#                                                the fix (read its
+#                                                permissive= field, not just
+#                                                its presence)
+#   enforcing + EACCES, no avc                -> ambiguous (dontaudit exists);
+#                                                setenforce 0 via adb root is
+#                                                the tiebreaker
+#
+# Zeroth check before any of the above: if `dmesg | grep cgroup2_early` comes
+# back empty on the flashed build, this package is not landing at all (wrong
+# slot/image, ramdisk unpack failure) -- meaning the chown never ran, which
+# alone explains EACCES with no vendor-rule theory required. Confirm presence
+# of these lines first; everything else is downstream of that observation.
 #
 # Bounded to ~60s so it cannot outlive a slow boot. Never blocks, never fails.
 (
