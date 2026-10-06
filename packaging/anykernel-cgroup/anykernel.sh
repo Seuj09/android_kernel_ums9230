@@ -94,7 +94,12 @@ install_ion_policy() {
   # first_stage_ramdisk/ is the live root on a normal boot (first_stage_init
   # SwitchRoot, force_normal_boot=1); the ramdisk root is the recovery tree.
   # Write both -- exactly one is live, and an unreachable copy is inert.
+  # Never FABRICATE first_stage_ramdisk/: mkdir below must only create the
+  # odm/... chain under roots that already exist. Creating the subdir itself
+  # would both lie to the layout check further down (it tests -d AFTER we
+  # run) and risk confusing first-stage init's ramdisk layout detection.
   for sub in "first_stage_ramdisk" ""; do
+    if [ -n "$sub" ] && [ ! -d "$root/$sub" ]; then continue; fi
     dst="$root${sub:+/$sub}/odm/etc/selinux"
     mkdir -p "$dst" 2>/dev/null || continue
     cp -f "$SRC/odm_sepolicy.cil" "$dst/odm_sepolicy.cil" || continue
