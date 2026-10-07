@@ -4,6 +4,10 @@ Diagnostic AnyKernel3 for A17 GSI stuck at logo (ION / SurfaceFlinger theory).
 
 Same BOOT nested Unisoc ramdisk inject as bpf, plus:
 - `patch_cmdline androidboot.selinux=permissive` on boot header
+- `patch_cmdline` for the DSU token set on boot header — verifiedbootstate=disabled,
+  buildvariant=userdebug, kvm-arm.mode=nvhe (the tokens `f96a0c657949` had put in
+  `CONFIG_CMDLINE` before `72e9ab8afe7a` reverted them; delivered here instead, so
+  they are not pinned into every image)
 - bootconfig append/update if present
 - vendor_boot cmdline/bootconfig if that partition exists
 
