@@ -2,8 +2,7 @@
 ## osm0sis @ xda-developers
 ## Seuj09: A17 ION / SELinux permissive TEST (bpf-a17-selinux-test)
 ## cgroup2 early-init + ion chown on BOOT nested ramdisk
-## + DSU cmdline set on boot header cmdline (verifiedbootstate, buildvariant,
-##   selinux=permissive, kvm-arm.mode) — and vendor_boot/bootconfig if present
+## + androidboot.selinux=permissive on boot header cmdline (and vendor_boot/bootconfig if present)
 ## Same path as "Disable Bootanimation": split_boot → unpack_ramdisk → patch → repack → flash_boot
 ## init_boot is EMPTY on this device — do not use it.
 
@@ -216,16 +215,6 @@ ui_print "- inject files present in boot ramdisk (cgroup2 + ion + netbpfload kve
 # ba98de94 cmdline hygiene + SELinux permissive TEST
 patch_cmdline "cgroup_disable" "cgroup_disable=pressure,net_prio"
 patch_cmdline "cgroup_no_v1" "cgroup_no_v1=cpu,cpuset,blkio,io,memory"
-
-# Rest of the DSU token set that used to sit in CONFIG_CMDLINE
-# (f96a0c657949, reverted by 72e9ab8afe7a). CONFIG_CMDLINE lands in the kernel
-# cmdline, which is the same channel patch_cmdline writes, so delivering them
-# here is the equivalent of that commit without pinning them into the image.
-# The fourth token of that set, androidboot.selinux=permissive, is patched with
-# enforcing=0 in the block below.
-patch_cmdline "androidboot.verifiedbootstate" "androidboot.verifiedbootstate=disabled"
-patch_cmdline "buildvariant" "buildvariant=userdebug"
-patch_cmdline "kvm-arm.mode" "kvm-arm.mode=nvhe"
 
 # SELinux permissive TEST — two independent knobs, because they are enforced
 # by different code:
