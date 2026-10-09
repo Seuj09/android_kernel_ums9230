@@ -129,16 +129,71 @@ on init
     write /dev/kmsg "cgroup2_early: on-init builtins done\n"
     exec -- /system/bin/sh /cgroup2_early_fix.sh
 
+# Vendor tmpfs-on-/sys/fs/cgroup and GSI CgroupSetup can hide apps/system
+# after on init. Re-mkdir before zygote (class_start main is during boot).
+# Do not umount: that drops the children zygote needs for createProcessGroup.
+on late-init
+    write /dev/kmsg "cgroup2_early: late-init reassert\n"
+    mkdir /sys/fs/cgroup 0755 root root
+    mount cgroup2 none /sys/fs/cgroup nodev noexec nosuid
+    write /sys/fs/cgroup/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/cgroup.subtree_control +io
+    write /sys/fs/cgroup/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/cgroup.subtree_control +pids
+    mkdir /sys/fs/cgroup/apps 0755 system system
+    mkdir /sys/fs/cgroup/system 0755 system system
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +io
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +pids
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/system/cgroup.subtree_control +io
+    write /sys/fs/cgroup/system/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/system/cgroup.subtree_control +pids
+    write /dev/kmsg "cgroup2_early: late-init builtins done\n"
+    exec -- /system/bin/sh /cgroup2_early_fix.sh reassert
+
 on post-fs-data
+    write /dev/kmsg "cgroup2_early: post-fs-data reassert\n"
+    mkdir /sys/fs/cgroup/apps 0755 system system
+    mkdir /sys/fs/cgroup/system 0755 system system
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +io
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +pids
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/system/cgroup.subtree_control +io
+    write /sys/fs/cgroup/system/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/system/cgroup.subtree_control +pids
     chown system graphics /dev/ion
     chmod 0666 /dev/ion
     chown system graphics /dev/sprd_ion
     chmod 0666 /dev/sprd_ion
     write /dev/kmsg "cgroup2_early: post-fs-data ion chown\n"
+    exec -- /system/bin/sh /cgroup2_early_fix.sh reassert
 
 on boot
+    write /dev/kmsg "cgroup2_early: on-boot reassert\n"
+    mkdir /sys/fs/cgroup/apps 0755 system system
+    mkdir /sys/fs/cgroup/system 0755 system system
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +io
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/apps/cgroup.subtree_control +pids
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpuset
+    write /sys/fs/cgroup/system/cgroup.subtree_control +cpu
+    write /sys/fs/cgroup/system/cgroup.subtree_control +io
+    write /sys/fs/cgroup/system/cgroup.subtree_control +memory
+    write /sys/fs/cgroup/system/cgroup.subtree_control +pids
     chown system graphics /dev/ion
     chmod 0666 /dev/ion
     chown system graphics /dev/sprd_ion
     chmod 0666 /dev/sprd_ion
     write /dev/kmsg "cgroup2_early: on-boot ion chown\n"
+    exec -- /system/bin/sh /cgroup2_early_fix.sh reassert
