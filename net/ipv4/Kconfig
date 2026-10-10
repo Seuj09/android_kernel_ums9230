@@ -683,6 +683,16 @@ config TCP_CONG_BBR2
 	using either TCP internal pacing or the fq ("Fair Queue") pacing packet
 	scheduler.
 
+config TCP_CONG_BBR3
+	tristate "BBR3 TCP"
+	default n
+	help
+	BBR3 is the third version of BBR (Google's v3 branch): a model-based
+	congestion control with explicit loss/ECN-bounded inflight models,
+	adapted to this kernel. Like BBR2 it needs the fq pacing qdisc (or
+	internal TCP pacing). Not the default; select it with sysctl
+	net.ipv4.tcp_congestion_control=bbr3.
+
 config TCP_CONG_BBRPLUS
         tristate "BBRPLUS TCP"
         ---help---
