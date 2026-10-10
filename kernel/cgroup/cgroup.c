@@ -1904,12 +1904,14 @@ int cgroup_show_path(struct seq_file *sf, struct kernfs_node *kf_node,
 enum cgroup2_param {
 	Opt_nsdelegate,
 	Opt_memory_localevents,
+	Opt_memory_recursiveprot,
 	nr__cgroup2_params
 };
 
 static const struct fs_parameter_spec cgroup2_param_specs[] = {
 	fsparam_flag("nsdelegate",		Opt_nsdelegate),
 	fsparam_flag("memory_localevents",	Opt_memory_localevents),
+	fsparam_flag("memory_recursiveprot",	Opt_memory_recursiveprot),
 	{}
 };
 
@@ -1935,6 +1937,9 @@ static int cgroup2_parse_param(struct fs_context *fc, struct fs_parameter *param
 	case Opt_memory_localevents:
 		ctx->flags |= CGRP_ROOT_MEMORY_LOCAL_EVENTS;
 		return 0;
+	case Opt_memory_recursiveprot:
+		ctx->flags |= CGRP_ROOT_MEMORY_RECURSIVE_PROT;
+		return 0;
 	}
 	return -EINVAL;
 }
@@ -1951,6 +1956,11 @@ static void apply_cgroup_root_flags(unsigned int root_flags)
 			cgrp_dfl_root.flags |= CGRP_ROOT_MEMORY_LOCAL_EVENTS;
 		else
 			cgrp_dfl_root.flags &= ~CGRP_ROOT_MEMORY_LOCAL_EVENTS;
+
+		if (root_flags & CGRP_ROOT_MEMORY_RECURSIVE_PROT)
+			cgrp_dfl_root.flags |= CGRP_ROOT_MEMORY_RECURSIVE_PROT;
+		else
+			cgrp_dfl_root.flags &= ~CGRP_ROOT_MEMORY_RECURSIVE_PROT;
 	}
 }
 
@@ -1960,6 +1970,8 @@ static int cgroup_show_options(struct seq_file *seq, struct kernfs_root *kf_root
 		seq_puts(seq, ",nsdelegate");
 	if (cgrp_dfl_root.flags & CGRP_ROOT_MEMORY_LOCAL_EVENTS)
 		seq_puts(seq, ",memory_localevents");
+	if (cgrp_dfl_root.flags & CGRP_ROOT_MEMORY_RECURSIVE_PROT)
+		seq_puts(seq, ",memory_recursiveprot");
 	return 0;
 }
 
@@ -6253,9 +6265,32 @@ static void cgroup2_a17_use_init_fs(void)
 }
 
 /*
+ * Keep flags that are already on. A remount replaces the flag set, so a
+ * string of only memory_recursiveprot would clear nsdelegate.
+ */
+static void cgroup2_a17_opts(char *buf, size_t len)
+{
+	unsigned int flags = cgrp_dfl_root.flags |
+			     CGRP_ROOT_MEMORY_RECURSIVE_PROT;
+	size_t n = 0;
+
+	buf[0] = '\0';
+	if (flags & CGRP_ROOT_NS_DELEGATE)
+		n += scnprintf(buf + n, len - n, "nsdelegate");
+	if (flags & CGRP_ROOT_MEMORY_LOCAL_EVENTS)
+		n += scnprintf(buf + n, len - n, "%smemory_localevents",
+			       n ? "," : "");
+	scnprintf(buf + n, len - n, "%smemory_recursiveprot", n ? "," : "");
+}
+
+/*
  * Vendor init mounts a tmpfs on /sys/fs/cgroup after the hierarchy exists.
  * Poll past class_start main and stack cgroup2 back on top. Children
  * created above show up on that mount. Never umount a live cgroup2.
+ *
+ * A17 init mounts cgroup2 with memory_recursiveprot. Pass that option on
+ * the mount this thread creates, and remount it onto a cgroup2 that was
+ * mounted without the option.
  */
 static int cgroup2_a17_mount_thread(void *unused)
 {
@@ -6271,8 +6306,11 @@ static int cgroup2_a17_mount_thread(void *unused)
 	for (i = 0; i < 360; i++) {
 		struct path p;
 		mm_segment_t oldfs;
+		char opts[80];
 		int mounted = 0;
 		int err;
+
+		cgroup2_a17_opts(opts, sizeof(opts));
 
 		if (!kern_path("/sys/fs/cgroup",
 			       LOOKUP_FOLLOW | LOOKUP_DIRECTORY, &p)) {
@@ -6280,6 +6318,22 @@ static int cgroup2_a17_mount_thread(void *unused)
 			path_put(&p);
 		}
 		if (mounted) {
+			if (cgrp_dfl_root.flags & CGRP_ROOT_MEMORY_RECURSIVE_PROT) {
+				msleep(500);
+				continue;
+			}
+
+			oldfs = get_fs();
+			set_fs(KERNEL_DS);
+			err = ksys_mount("cgroup2", "/sys/fs/cgroup", "cgroup2",
+					 MS_REMOUNT | MS_NOSUID | MS_NODEV |
+					 MS_NOEXEC, opts);
+			set_fs(oldfs);
+			if (!err)
+				pr_info("cgroup2_a17: remounted memory_recursiveprot\n");
+			else
+				pr_info_ratelimited("cgroup2_a17: remount: %d\n",
+						    err);
 			msleep(500);
 			continue;
 		}
@@ -6287,7 +6341,7 @@ static int cgroup2_a17_mount_thread(void *unused)
 		oldfs = get_fs();
 		set_fs(KERNEL_DS);
 		err = ksys_mount("cgroup2", "/sys/fs/cgroup", "cgroup2",
-				 MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+				 MS_NOSUID | MS_NODEV | MS_NOEXEC, opts);
 		set_fs(oldfs);
 
 		if (!err)
@@ -7022,7 +7076,10 @@ static struct kobj_attribute cgroup_delegate_attr = __ATTR_RO(delegate);
 static ssize_t features_show(struct kobject *kobj, struct kobj_attribute *attr,
 			     char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "nsdelegate\nmemory_localevents\n");
+	return snprintf(buf, PAGE_SIZE,
+			"nsdelegate\n"
+			"memory_localevents\n"
+			"memory_recursiveprot\n");
 }
 static struct kobj_attribute cgroup_features_attr = __ATTR_RO(features);
 
