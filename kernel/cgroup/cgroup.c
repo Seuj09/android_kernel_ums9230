@@ -56,6 +56,11 @@
 #include <linux/nsproxy.h>
 #include <linux/file.h>
 #include <linux/fs_parser.h>
+#include <linux/fs_struct.h>
+#include <linux/limits.h>
+#include <linux/namei.h>
+#include <linux/syscalls.h>
+#include <linux/uaccess.h>
 #include <linux/sched/cputime.h>
 #include <linux/psi.h>
 #include <net/sock.h>
@@ -6092,6 +6097,252 @@ static int __init cgroup_wq_init(void)
 	return 0;
 }
 core_initcall(cgroup_wq_init);
+
+/*
+ * A17 GSI libprocessgroup (CGROUP_V2_SYS_APP_ISOLATION) mkdirs
+ * /sys/fs/cgroup/system/uid_<uid> from zygote. Those parents have to exist
+ * on the default hierarchy before second-stage init: the boot ramdisk rc
+ * that used to create them is not imported there.
+ *
+ * Only memory is delegated. createProcessGroup enables it on the uid
+ * directory and parks the task in the pid child. cpuset is left alone;
+ * its css_online takes cpu hotplug and can deadlock with cgroup_mutex
+ * this early.
+ *
+ * Do not call cgroup_mkdir() from here. It breaks a kernfs active
+ * reference, which underflows when the caller is not a kernfs operation.
+ * Do not create these children from cgroup_setup_root(); that path
+ * BUG_ON()s if the root already has a child.
+ */
+static struct cgroup *cgroup2_a17_child(struct cgroup *parent, const char *name)
+{
+	struct cgroup *child;
+	char buf[NAME_MAX + 1];
+
+	lockdep_assert_held(&cgroup_mutex);
+
+	cgroup_for_each_live_child(child, parent) {
+		if (!child->kn)
+			continue;
+		kernfs_name(child->kn, buf, sizeof(buf));
+		if (!strcmp(buf, name))
+			return child;
+	}
+	return NULL;
+}
+
+/* cgroup_mutex held. Same body as cgroup_mkdir without kernfs active refs. */
+static int cgroup2_a17_mkdir_locked(struct cgroup *parent, const char *name)
+{
+	struct cgroup *cgrp;
+	struct kernfs_node *kn;
+	int ret;
+
+	lockdep_assert_held(&cgroup_mutex);
+
+	if (cgroup2_a17_child(parent, name))
+		return 0;
+
+	if (!cgroup_check_hierarchy_limits(parent))
+		return -EAGAIN;
+
+	cgrp = cgroup_create(parent);
+	if (IS_ERR(cgrp))
+		return PTR_ERR(cgrp);
+
+	kn = kernfs_create_dir(parent->kn, name, 0755, cgrp);
+	if (IS_ERR(kn)) {
+		ret = PTR_ERR(kn);
+		cgroup_destroy_locked(cgrp);
+		return ret;
+	}
+	cgrp->kn = kn;
+	kernfs_get(kn);
+
+	ret = cgroup_kn_set_ugid(kn);
+	if (ret)
+		goto out_destroy;
+
+	ret = css_populate_dir(&cgrp->self);
+	if (ret)
+		goto out_destroy;
+
+	ret = cgroup_apply_control_enable(cgrp);
+	if (ret)
+		goto out_destroy;
+
+	kernfs_activate(kn);
+	return 0;
+
+out_destroy:
+	cgroup_destroy_locked(cgrp);
+	return ret;
+}
+
+static int cgroup2_a17_enable_memory_locked(struct cgroup *cgrp)
+{
+	struct cgroup_subsys *ss;
+	int ssid, ret;
+	u16 bit = 0;
+
+	lockdep_assert_held(&cgroup_mutex);
+
+	for_each_subsys(ss, ssid) {
+		if (strcmp(ss->name, "memory"))
+			continue;
+		if (!cgroup_ssid_enabled(ssid))
+			return -ENODEV;
+		if (cgrp->subtree_control & (1 << ssid))
+			return 0;
+		if (!(cgroup_control(cgrp) & (1 << ssid)))
+			return -ENOENT;
+		bit = 1 << ssid;
+		break;
+	}
+	if (!bit)
+		return -ENOENT;
+
+	ret = cgroup_vet_subtree_control_enable(cgrp, bit);
+	if (ret)
+		return ret;
+
+	cgroup_save_control(cgrp);
+	cgrp->subtree_control |= bit;
+	ret = cgroup_apply_control(cgrp);
+	cgroup_finalize_control(cgrp, ret);
+	if (!ret)
+		kernfs_activate(cgrp->kn);
+	return ret;
+}
+
+/*
+ * kthreads are CLONE_FS from kthreadd, which shares pid 1's fs_struct.
+ * switch_root updates that same fs_struct. If this thread does not already
+ * hold it, pin pid 1's so path lookup follows the post-switch root.
+ */
+static void cgroup2_a17_use_init_fs(void)
+{
+	struct fs_struct *old, *fs;
+	int kill = 0;
+
+	task_lock(&init_task);
+	fs = init_task.fs;
+	if (fs && fs != current->fs) {
+		spin_lock(&fs->lock);
+		fs->users++;
+		spin_unlock(&fs->lock);
+	}
+	task_unlock(&init_task);
+
+	if (!fs || fs == current->fs)
+		return;
+
+	task_lock(current);
+	old = current->fs;
+	current->fs = fs;
+	task_unlock(current);
+
+	if (!old)
+		return;
+
+	spin_lock(&old->lock);
+	kill = !--old->users;
+	spin_unlock(&old->lock);
+	if (kill)
+		free_fs_struct(old);
+}
+
+/*
+ * Vendor init mounts a tmpfs on /sys/fs/cgroup after the hierarchy exists.
+ * Poll past class_start main and stack cgroup2 back on top. Children
+ * created above show up on that mount. Never umount a live cgroup2.
+ */
+static int cgroup2_a17_mount_thread(void *unused)
+{
+	int i;
+
+	cgroup2_a17_use_init_fs();
+	if (!current->fs || !current->nsproxy) {
+		pr_err("cgroup2_a17: mount thread has no fs/ns\n");
+		return 0;
+	}
+
+	/* 360 * 500ms covers the zygote retry window. */
+	for (i = 0; i < 360; i++) {
+		struct path p;
+		mm_segment_t oldfs;
+		int mounted = 0;
+		int err;
+
+		if (!kern_path("/sys/fs/cgroup",
+			       LOOKUP_FOLLOW | LOOKUP_DIRECTORY, &p)) {
+			mounted = p.dentry->d_sb->s_magic == CGROUP2_SUPER_MAGIC;
+			path_put(&p);
+		}
+		if (mounted) {
+			msleep(500);
+			continue;
+		}
+
+		oldfs = get_fs();
+		set_fs(KERNEL_DS);
+		err = ksys_mount("cgroup2", "/sys/fs/cgroup", "cgroup2",
+				 MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL);
+		set_fs(oldfs);
+
+		if (!err)
+			pr_info("cgroup2_a17: mounted cgroup2 on /sys/fs/cgroup\n");
+		else
+			pr_info_ratelimited("cgroup2_a17: mount cgroup2: %d\n",
+					    err);
+		msleep(500);
+	}
+
+	pr_info("cgroup2_a17: mount watcher done\n");
+	return 0;
+}
+
+static int __init cgroup2_a17_seed(void)
+{
+	struct cgroup *root = &cgrp_dfl_root.cgrp;
+	struct cgroup *apps, *system;
+	struct task_struct *task;
+	int ret;
+
+	if (!root->kn)
+		return 0;
+
+	mutex_lock(&cgroup_mutex);
+
+	pr_info("cgroup2_a17: enable memory on root\n");
+	ret = cgroup2_a17_enable_memory_locked(root);
+	pr_info("cgroup2_a17: root memory: %d\n", ret);
+
+	ret = cgroup2_a17_mkdir_locked(root, "apps");
+	pr_info("cgroup2_a17: mkdir apps: %d\n", ret);
+	ret = cgroup2_a17_mkdir_locked(root, "system");
+	pr_info("cgroup2_a17: mkdir system: %d\n", ret);
+
+	apps = cgroup2_a17_child(root, "apps");
+	system = cgroup2_a17_child(root, "system");
+	if (apps) {
+		ret = cgroup2_a17_enable_memory_locked(apps);
+		pr_info("cgroup2_a17: apps memory: %d\n", ret);
+	}
+	if (system) {
+		ret = cgroup2_a17_enable_memory_locked(system);
+		pr_info("cgroup2_a17: system memory: %d\n", ret);
+	}
+
+	mutex_unlock(&cgroup_mutex);
+
+	task = kthread_run(cgroup2_a17_mount_thread, NULL, "cgroup2_a17");
+	if (IS_ERR(task))
+		pr_err("cgroup2_a17: mount thread: %ld\n", PTR_ERR(task));
+
+	return 0;
+}
+late_initcall(cgroup2_a17_seed);
 
 void cgroup_path_from_kernfs_id(const union kernfs_node_id *id,
 					char *buf, size_t buflen)
