@@ -38,6 +38,7 @@
 #include <linux/magic.h>
 #include <linux/mutex.h>
 #include <linux/mount.h>
+#include <uapi/linux/mount.h>
 #include <linux/pagemap.h>
 #include <linux/proc_fs.h>
 #include <linux/rcupdate.h>
