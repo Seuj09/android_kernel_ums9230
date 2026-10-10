@@ -71,6 +71,24 @@ void topology_set_cpu_scale(unsigned int cpu, unsigned long capacity)
 	per_cpu(cpu_scale, cpu) = capacity;
 }
 
+/*
+ * Thermal pressure: capacity currently lost to thermal capping of the max
+ * frequency (backport of the v5.7 arch_topology helpers). Written by the
+ * cpufreq cooling device, read by the scheduler's capacity update.
+ */
+DEFINE_PER_CPU(unsigned long, thermal_pressure);
+EXPORT_PER_CPU_SYMBOL_GPL(thermal_pressure);
+
+void topology_set_thermal_pressure(const struct cpumask *cpus,
+				   unsigned long th_pressure)
+{
+	int cpu;
+
+	for_each_cpu(cpu, cpus)
+		WRITE_ONCE(per_cpu(thermal_pressure, cpu), th_pressure);
+}
+EXPORT_SYMBOL_GPL(topology_set_thermal_pressure);
+
 static ssize_t cpu_capacity_show(struct device *dev,
 				 struct device_attribute *attr,
 				 char *buf)

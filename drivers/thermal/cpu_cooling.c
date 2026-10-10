@@ -325,6 +325,28 @@ static int cpufreq_get_cur_state(struct thermal_cooling_device *cdev,
 	return 0;
 }
 
+/*
+ * Tell the scheduler how much capacity the current frequency cap removes
+ * (v5.7 "thermal pressure"): capacity * (1 - capped_freq / max_freq).
+ */
+static void cpufreq_cdev_update_thermal_pressure(struct cpufreq_cooling_device *cdev,
+						 unsigned long state)
+{
+	struct cpufreq_policy *policy = cdev->policy;
+	unsigned long max_capacity, th_pressure;
+	u32 max_freq, capped_freq;
+
+	max_freq = cdev->freq_table[0].frequency;
+	capped_freq = cdev->freq_table[state].frequency;
+	if (!max_freq || capped_freq > max_freq)
+		return;
+
+	max_capacity = arch_scale_cpu_capacity(cpumask_first(policy->related_cpus));
+	th_pressure = max_capacity - mult_frac(max_capacity, capped_freq, max_freq);
+
+	arch_set_thermal_pressure(policy->related_cpus, th_pressure);
+}
+
 /**
  * cpufreq_set_cur_state - callback function to set the current cooling state.
  * @cdev: thermal cooling device pointer.
@@ -362,8 +384,10 @@ static int cpufreq_set_cur_state(struct thermal_cooling_device *cdev,
 
 	ret = freq_qos_update_request(&cpufreq_cdev->qos_req,
 			cpufreq_cdev->freq_table[state].frequency);
-	if (ret > 0)
+	if (ret > 0) {
 		cpufreq_cdev->cpufreq_state = state;
+		cpufreq_cdev_update_thermal_pressure(cpufreq_cdev, state);
+	}
 #ifdef CONFIG_SPRD_THERMAL_POLICY
 	freq = cpufreq_cdev->freq_table[state].frequency;
 	pr_info("cpu%u temp: %d update max_freq to %u\n", cpu, cur_temp, freq);

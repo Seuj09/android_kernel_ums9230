@@ -25,6 +25,10 @@ int pcibus_to_node(struct pci_bus *bus);
 /* Replace task scheduler's default cpu-invariant accounting */
 #define arch_scale_cpu_capacity topology_get_cpu_scale
 
+/* Capacity lost to thermal capping (see drivers/base/arch_topology.c) */
+#define arch_scale_thermal_pressure topology_get_thermal_pressure
+#define arch_set_thermal_pressure topology_set_thermal_pressure
+
 /* Enable topology flag updates */
 #define arch_update_cpu_topology topology_update_cpu_topology
 

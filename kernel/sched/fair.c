@@ -8447,6 +8447,12 @@ static void update_cpu_capacity(struct sched_domain *sd, int cpu)
 	raw_spin_unlock_irqrestore(&mcc->lock, flags);
 
 skip_unlock: __attribute__ ((unused));
+	/* capacity lost to thermal capping of the max frequency */
+	{
+		unsigned long th_pressure = arch_scale_thermal_pressure(cpu);
+
+		capacity = th_pressure < capacity ? capacity - th_pressure : 1;
+	}
 	capacity = scale_rt_capacity(cpu, capacity);
 
 	if (!capacity)
