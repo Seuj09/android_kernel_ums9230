@@ -7145,8 +7145,9 @@ cg_skb_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 #ifdef CONFIG_INET
 	/* Android 17's netd looks a socket up from the skb so it can read that
 	 * socket's sk_storage -- see should_block_loopback_access(), reached from
-	 * egress/stats for the 25Q4+ API levels, which our advertised 5.10.239
-	 * and API 37 select. Without these the program fails verification.
+	 * egress/stats for the 25Q4+ API levels, which 5.15.178 and API 37
+	 * still select (the 26Q2 stats program is the 5.10..6.1 one).
+	 * Without these the program fails verification.
 	 */
 	case BPF_FUNC_sk_lookup_tcp:
 		return &bpf_sk_lookup_tcp_proto;

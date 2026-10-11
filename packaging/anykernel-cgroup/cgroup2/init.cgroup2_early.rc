@@ -5,29 +5,26 @@
 # NOTE: init .rc cannot load sepolicy; ion chown is DAC belt-and-braces only.
 
 # --- netbpfload kernel-version override (Android 17 GSI) --------------------
-# uname is 5.4.302. A 37.0 (26Q2) netbpfload only warns when the kernel is
-# below 5.10; exit 7 is the 5.15 gate and only runs on 26Q4 (api_level_full
-# >= 3710). The override stays because 26Q2 has no 5.4 ingress/egress
-# program. Reporting 5.4 leaves netd.o with nothing to attach, loadAllObjects
-# fails, and init reboots with bpfloader-failed. 5.10.239 selects the
-# 5.10..6.1 program set, which this tree can load.
+# uname is 5.4.302. A 37.0 (26Q2) netbpfload only warns below 5.10. Exit 7
+# is the 5.15 gate and only runs on 26Q4 (api_level_full >= 3710). 26Q2 has
+# no 5.4 ingress/egress program, so a real 5.4 report fails loadAllObjects
+# and init reboots with bpfloader-failed.
 #
-# The value is bounded on two sides:
-#   >= 5.10      26Q2 traffic programs start here.
-#   <  6.1       at >=6.1 the mandatory CGROUP_SOCKOPT programs call
-#                bpf_set_retval, which this kernel does not implement.
-# 5.15 is safe for bind: __cgroup_bpf_run_filter_sock_addr keeps the low
-# bit as allow/deny and copies the next bit into
-# BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE. __inet_bind and __inet6_bind then
-# skip CAP_NET_BIND_SERVICE, so netd's return value 3 (port 53, adb 555,
-# and the unprivileged 80/443 set) is not rejected with -EACCES.
-# Traffic programs do not change between 5.10 and 5.15 on 26Q2, so this
-# stays at 5.10.239 (a real LTS, and >= 5.10.199 so the sub-version
-# warning stays quiet). Raising it does not fix a Wi-Fi blackhole.
+# 5.15.178 is the value this kernel can actually honor:
+#   >= 5.15.136  silences the 5.15 sub-version warning.
+#   >= 5.15      selects netd bind4/bind6. Those programs return 3: allow,
+#                plus BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE. The sock_addr
+#                runner keeps bit 0, and __inet_bind / __inet6_bind skip
+#                CAP_NET_BIND_SERVICE. 5.10.239 selected the 4.19..5.15 bind
+#                program, which returns 1, so that skip never ran.
+#   <  6.1       6.1 sockopt programs call bpf_set_retval, which this kernel
+#                does not implement.
+# 26Q2 ingress/egress stay on the 5.10..6.1 program. set_dscp_ether is the
+# one new mandatory sched_cls program; it returns TC_ACT_PIPE and uses
+# bpf_skb_store_bytes and bpf_l3_csum_replace, which this tree already has.
 #
 # cnb / android-17.0.0_r1 KernelUtils.h reads ro.bpf.kver_override before
-# uname(). The property is what makes this 5.4 kernel load the 5.10 program
-# set. A GSI whose KernelUtils.h is still uname()-only ignores the line.
+# uname(). A GSI whose KernelUtils.h is still uname()-only ignores the line.
 #
 # No sepolicy entry is needed: an unlisted ro.* name resolves to
 # u:object_r:default_prop:s0 (init/property_service.cpp:1319 default), which is
@@ -39,8 +36,8 @@
 # `load-bpf-programs`. ro.* cannot be set twice, so this must be first.
 
 on early-init
-    setprop ro.bpf.kver_override 5.10.239
-    write /dev/kmsg "cgroup2_early: ro.bpf.kver_override=5.10.239 set\n"
+    setprop ro.bpf.kver_override 5.15.178
+    write /dev/kmsg "cgroup2_early: ro.bpf.kver_override=5.15.178 set\n"
     write /dev/kmsg "cgroup2_early: begin\n"
     mkdir /sys/fs/cgroup 0755 root root
     write /dev/kmsg "cgroup2_early: mkdir /sys/fs/cgroup done\n"
