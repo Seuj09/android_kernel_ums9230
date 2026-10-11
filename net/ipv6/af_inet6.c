@@ -277,7 +277,8 @@ out_sk_release:
 }
 
 static int __inet6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
-			bool force_bind_address_no_port, bool with_lock)
+			bool force_bind_address_no_port, bool with_lock,
+			u32 bind_flags)
 {
 	struct sockaddr_in6 *addr = (struct sockaddr_in6 *)uaddr;
 	struct inet_sock *inet = inet_sk(sk);
@@ -299,7 +300,8 @@ static int __inet6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len,
 	snum = ntohs(addr->sin6_port);
 	if (snum && inet_is_local_unbindable_port(net, snum))
 		return -EPERM;
-	if (snum && snum < inet_prot_sock(net) &&
+	if (!(bind_flags & BIND_NO_CAP_NET_BIND_SERVICE) &&
+	    snum && snum < inet_prot_sock(net) &&
 	    !ns_capable(net->user_ns, CAP_NET_BIND_SERVICE))
 		return -EACCES;
 
@@ -442,6 +444,7 @@ int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 {
 	struct sock *sk = sock->sk;
 	const struct proto *prot;
+	u32 bind_flags = 0;
 	int err = 0;
 
 	/* IPV6_ADDRFORM can change sk->sk_prot under us. */
@@ -456,11 +459,11 @@ int inet6_bind(struct socket *sock, struct sockaddr *uaddr, int addr_len)
 	/* BPF prog is run before any checks are done so that if the prog
 	 * changes context in a wrong way it will be caught.
 	 */
-	err = BPF_CGROUP_RUN_PROG_INET6_BIND(sk, uaddr);
+	err = BPF_CGROUP_RUN_PROG_INET6_BIND(sk, uaddr, &bind_flags);
 	if (err)
 		return err;
 
-	return __inet6_bind(sk, uaddr, addr_len, false, true);
+	return __inet6_bind(sk, uaddr, addr_len, false, true, bind_flags);
 }
 EXPORT_SYMBOL(inet6_bind);
 

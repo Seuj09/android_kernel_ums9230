@@ -1185,6 +1185,42 @@ _out:							\
 #define BPF_PROG_RUN_ARRAY_CHECK(array, ctx, func)	\
 	__BPF_PROG_RUN_ARRAY(array, ctx, func, true, false)
 
+/* Bit 0 of a cgroup sock_addr return is allow (1) / deny (0).
+ * Bits above that are OR'd into *ret_flags. A17 netd's
+ * BPF_ALLOW_IGNORING_CAP_NET_BIND is 3: allow, plus this flag
+ * shifted up by 1.
+ */
+#define BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE			(1 << 0)
+
+#define BPF_PROG_RUN_ARRAY_FLAGS(array, ctx, func, ret_flags)		\
+	({								\
+		struct bpf_prog_array_item *_item;			\
+		struct bpf_prog *_prog;					\
+		struct bpf_prog_array *_array;				\
+		u32 _ret = 1;						\
+		u32 _flags = 0;						\
+		u32 _func_ret;						\
+		migrate_disable();					\
+		rcu_read_lock();					\
+		_array = rcu_dereference(array);			\
+		_item = &_array->items[0];				\
+		while ((_prog = READ_ONCE(_item->prog))) {		\
+			if (unlikely(bpf_cgroup_storage_set(		\
+					_item->cgroup_storage)))	\
+				break;					\
+			_func_ret = func(_prog, ctx);			\
+			bpf_cgroup_storage_unset();			\
+			_ret &= (_func_ret & 1);			\
+			_flags |= (_func_ret >> 1);			\
+			_item++;					\
+		}							\
+		rcu_read_unlock();					\
+		migrate_enable();					\
+		if (ret_flags)						\
+			*(ret_flags) = _flags;				\
+		_ret;							\
+	})
+
 #ifdef CONFIG_BPF_SYSCALL
 DECLARE_PER_CPU(int, bpf_prog_active);
 extern struct mutex bpf_stats_enabled_mutex;

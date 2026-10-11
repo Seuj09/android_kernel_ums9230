@@ -1111,12 +1111,15 @@ EXPORT_SYMBOL(__cgroup_bpf_run_filter_sk);
  * socket is expected to be of type INET or INET6.
  *
  * This function will return %-EPERM if an attached program is found and
- * returned value != 1 during execution. In all other cases, 0 is returned.
+ * the low bit of its return value is clear. In all other cases, 0 is
+ * returned. When @flags is non-NULL, bits above the low bit are OR'd
+ * into it (A17 bind returns 3 to set
+ * BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE).
  */
 int __cgroup_bpf_run_filter_sock_addr(struct sock *sk,
 				      struct sockaddr *uaddr,
 				      enum bpf_attach_type type,
-				      void *t_ctx)
+				      void *t_ctx, u32 *flags)
 {
 	struct bpf_sock_addr_kern ctx = {
 		.sk = sk,
@@ -1139,7 +1142,12 @@ int __cgroup_bpf_run_filter_sock_addr(struct sock *sk,
 	}
 
 	cgrp = sock_cgroup_ptr(&sk->sk_cgrp_data);
-	ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[type], &ctx, BPF_PROG_RUN);
+	if (flags)
+		ret = BPF_PROG_RUN_ARRAY_FLAGS(cgrp->bpf.effective[type], &ctx,
+					       BPF_PROG_RUN, flags);
+	else
+		ret = BPF_PROG_RUN_ARRAY(cgrp->bpf.effective[type], &ctx,
+					 BPF_PROG_RUN);
 
 	return ret == 1 ? 0 : -EPERM;
 }
