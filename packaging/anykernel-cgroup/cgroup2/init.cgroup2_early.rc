@@ -15,8 +15,11 @@
 #   >= 5.15      selects netd bind4/bind6. Those programs return 3: allow,
 #                plus BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE. The sock_addr
 #                runner keeps bit 0, and __inet_bind / __inet6_bind skip
-#                CAP_NET_BIND_SERVICE. 5.10.239 selected the 4.19..5.15 bind
-#                program, which returns 1, so that skip never ran.
+#                CAP_NET_BIND_SERVICE. The verifier allows R0 in 0..3 for
+#                those attach types; 0..1 would reject the load and init
+#                would reboot bpfloader-failed. 5.10.239 selected the
+#                4.19..5.15 bind program, which returns 1, so that skip
+#                never ran.
 #   <  6.1       6.1 sockopt programs call bpf_set_retval, which this kernel
 #                does not implement.
 # 26Q2 ingress/egress stay on the 5.10..6.1 program. set_dscp_ether is the

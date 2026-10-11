@@ -8619,6 +8619,15 @@ static int check_return_code(struct bpf_verifier_env *env)
 		    env->prog->expected_attach_type == BPF_CGROUP_INET4_GETSOCKNAME ||
 		    env->prog->expected_attach_type == BPF_CGROUP_INET6_GETSOCKNAME)
 			range = tnum_range(1, 1);
+		/*
+		 * A17 netd's 5.15 bind program returns 3: bit 0 is allow,
+		 * bit 1 is BPF_RET_BIND_NO_CAP_NET_BIND_SERVICE. Leaving the
+		 * range at 0..1 rejects BPF_PROG_LOAD, netd.o fails, and
+		 * init reboots with bpfloader-failed.
+		 */
+		if (env->prog->expected_attach_type == BPF_CGROUP_INET4_BIND ||
+		    env->prog->expected_attach_type == BPF_CGROUP_INET6_BIND)
+			range = tnum_range(0, 3);
 		break;
 	case BPF_PROG_TYPE_CGROUP_SKB:
 		if (env->prog->expected_attach_type == BPF_CGROUP_INET_EGRESS) {
