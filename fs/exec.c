@@ -1732,13 +1732,15 @@ int search_binary_handler(struct linux_binprm *bprm)
 }
 EXPORT_SYMBOL(search_binary_handler);
 
+#ifdef CONFIG_KSU
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
+			void *envp, int *flags);
 #ifdef CONFIG_KSU_SUSFS
 extern bool ksu_execveat_hook __read_mostly;
 extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-			void *envp, int *flags);
 extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
 				void *envp, int *flags);
+#endif
 #endif
 
 static int exec_binprm(struct linux_binprm *bprm)
@@ -1779,6 +1781,7 @@ static int __do_execve_file(int fd, struct filename *filename,
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
 
+#ifdef CONFIG_KSU
 #ifdef CONFIG_KSU_SUSFS
 	if (likely(susfs_is_current_proc_umounted())) {
 		goto orig_flow;
@@ -1789,6 +1792,9 @@ static int __do_execve_file(int fd, struct filename *filename,
 		ksu_handle_execveat_sucompat(&fd, &filename, &argv, &envp, &flags);
 	}
 orig_flow:
+#else
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+#endif
 #endif
 
 	/*
